@@ -60,4 +60,16 @@ export class AuthService {
     const user = await this.userRepo.findOneByOrFail({ id: userId });
     return { id: user.id };
   }
+
+  async validateGoogleUser(googleUser: CreateUserInput) {
+        const user = await this.userRepo.findOne({ where: { email: googleUser.email } });
+        if (!user) {
+            // If user does not exist, create a new user
+            const newUser = this.userRepo.create(googleUser);
+            await this.userRepo.save(newUser);
+            return newUser;
+        }
+        // If user exists, return the user
+        return user;
+    }
 }
