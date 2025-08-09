@@ -27,6 +27,7 @@ export class AuthController {
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
     const response = await this.authService.login(req.user.id);
-    res.redirect(`http://localhost:5173?token=${response.token}&userId=${response.userId}`);
+    const url = process.env.FRONTEND_URL || 'http://localhost:3001';
+    res.redirect(`${url}?token=${response.token}&userId=${response.userId}&userId=${response.userId}`);
   }
 }
