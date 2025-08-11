@@ -8,6 +8,7 @@ import { SignInInput } from './dto/signIn.input';
 import { AuthJwtPayload } from './types/auth-jwt-payload';
 import { JwtService } from '@nestjs/jwt';
 import { AuthPayload } from './entities/auth-payload';
+import { JwtUser } from './types/jwt-user';
 
 @Injectable()
 export class AuthService {
@@ -58,7 +59,10 @@ export class AuthService {
 
   async validateJwtUser(userId: number) {
     const user = await this.userRepo.findOneByOrFail({ id: userId });
-    return { id: user.id };
+    const jwtUser: JwtUser = {
+      userId: user.id,
+    };
+    return jwtUser;
   }
 
   async validateGoogleUser(googleUser: CreateUserInput) {

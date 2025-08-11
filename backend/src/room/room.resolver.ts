@@ -6,7 +6,7 @@ import { UpdateRoomInput } from './dto/update-room.input';
 import { Room } from 'src/entities/room.entity';
 import { GqlJwtGuard } from '../auth/guards/gql-jwt-guard/gql-jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { User } from '../entities/user.entity';
+import { JwtUser } from 'src/auth/types/jwt-user';
 
 @Resolver(() => Room)
 export class RoomResolver {
@@ -16,9 +16,9 @@ export class RoomResolver {
   @Mutation(() => Room)
   createRoom(
     @Args('createRoomInput') createRoomInput: CreateRoomInput,
-    @CurrentUser() user: User,
+    @CurrentUser() user: JwtUser,
   ) {
-    return this.roomService.create(createRoomInput, user.id);
+    return this.roomService.create(createRoomInput, user.userId);
   }
 
   @Query(() => [Room], { name: 'rooms' })
@@ -41,9 +41,9 @@ export class RoomResolver {
   @Mutation(() => Room)
   async joinRoom(
     @Args('roomCode', { type: () => String }) roomCode: string,
-    @CurrentUser() user: User,
+    @CurrentUser() user: JwtUser,
   ) {
-    return this.roomService.addParticipant(roomCode, user.id);
+    return this.roomService.addParticipant(roomCode, user.userId);
   }
 
   // 🆕 Leave room mutation
@@ -51,9 +51,9 @@ export class RoomResolver {
   @Mutation(() => Room)
   async leaveRoom(
     @Args('roomCode', { type: () => String }) roomCode: string,
-    @CurrentUser() user: User,
+    @CurrentUser() user: JwtUser,
   ) {
-    return this.roomService.removeParticipant(roomCode, user.id);
+    return this.roomService.removeParticipant(roomCode, user.userId);
   }
 
   // 🆕 Get participant count query
