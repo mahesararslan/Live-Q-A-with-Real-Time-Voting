@@ -25,7 +25,6 @@ import { useAuth } from "@/contexts/auth-context";
 import { cn } from "@/lib/utils";
 
 const navigation = [
-  { name: "Home", href: "/" },
   { name: "About", href: "/about" },
 ];
 
@@ -42,87 +41,103 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 max-w-screen-2xl items-center justify-between px-4">
-        {/* Logo */}
+        {/* Left Section - Logo */}
         <Link href="/" className="flex items-center space-x-2">
           <MessageSquare className="h-6 w-6 text-primary" />
           <span className="text-xl font-bold">LiveQnA</span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-8">
-          {navigation.map((item) => (
+        {/* Right Section - Navigation and Actions */}
+        <div className="flex items-center space-x-6">
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center space-x-6">
             <Link
-              key={item.href}
-              href={item.href}
+              href="/"
               className={cn(
                 "text-sm font-medium transition-colors hover:text-primary",
-                pathname === item.href
+                pathname === "/"
                   ? "text-foreground"
                   : "text-foreground/60"
               )}
             >
-              {item.name}
+              Home
             </Link>
-          ))}
-        </nav>
+            {navigation.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "text-sm font-medium transition-colors hover:text-primary",
+                  pathname === item.href
+                    ? "text-foreground"
+                    : "text-foreground/60"
+                )}
+              >
+                {item.name}
+              </Link>
+            ))}
+          </nav>
 
-        {/* Desktop Actions */}
-        <div className="hidden md:flex items-center space-x-4">
-          <ThemeToggle />
-          {isLoading ? (
-            <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
-          ) : isAuthenticated && user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={user.avatarUrl} alt={user.firstName} />
-                    <AvatarFallback>
-                      {user.firstName[0]}{user.lastName[0]}
-                    </AvatarFallback>
-                  </Avatar>
+          {/* Desktop Actions */}
+          <div className="hidden md:flex items-center space-x-4">
+            <ThemeToggle />
+            {isLoading ? (
+              <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
+            ) : isAuthenticated && user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage 
+                        src={user.avatarUrl || ""} 
+                        alt={`${user.firstName} ${user.lastName}`} 
+                      />
+                      <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                        {user.firstName?.[0]?.toUpperCase()}{user.lastName?.[0]?.toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {user.firstName} {user.lastName}
+                      </p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {user.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <>
+                <Button variant="outline" asChild>
+                  <Link href="/auth/signin">Sign In</Link>
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" forceMount>
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {user.firstName} {user.lastName}
-                    </p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {user.email}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <>
-              <Button variant="outline" asChild>
-                <Link href="/auth/signin">Sign In</Link>
-              </Button>
-              <Button asChild>
-                <Link href="/auth/signup">Get Started</Link>
-              </Button>
-            </>
-          )}
-        </div>
+                <Button asChild>
+                  <Link href="/auth/signup">Get Started</Link>
+                </Button>
+              </>
+            )}
+          </div>
 
-        {/* Mobile Menu */}
-        <div className="md:hidden flex items-center space-x-2">
-          <ThemeToggle />
-          <Sheet open={isOpen} onOpenChange={setIsOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon">
-                <Menu className="h-5 w-5" />
-                <span className="sr-only">Toggle navigation menu</span>
-              </Button>
-            </SheetTrigger>
+          {/* Mobile Menu */}
+          <div className="md:hidden flex items-center space-x-2">
+            <ThemeToggle />
+            <Sheet open={isOpen} onOpenChange={setIsOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <Menu className="h-5 w-5" />
+                  <span className="sr-only">Toggle navigation menu</span>
+                </Button>
+              </SheetTrigger>
             <SheetContent side="right" className="w-[300px]">
               <div className="flex flex-col space-y-4 mt-4">
                 <Link href="/" className="flex items-center space-x-2 mb-4">
@@ -131,6 +146,18 @@ export function Navbar() {
                 </Link>
                 
                 <nav className="flex flex-col space-y-2">
+                  <Link
+                    href="/"
+                    onClick={() => setIsOpen(false)}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium rounded-md transition-colors hover:bg-accent",
+                      pathname === "/"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground/60"
+                    )}
+                  >
+                    Home
+                  </Link>
                   {navigation.map((item) => (
                     <Link
                       key={item.href}
@@ -153,9 +180,20 @@ export function Navbar() {
                     <div className="w-full h-10 rounded bg-muted animate-pulse" />
                   ) : isAuthenticated && user ? (
                     <>
-                      <div className="px-4 py-2 text-sm">
-                        <div className="font-medium">{user.firstName} {user.lastName}</div>
-                        <div className="text-muted-foreground text-xs">{user.email}</div>
+                      <div className="flex items-center space-x-3 px-4 py-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage 
+                            src={user.avatarUrl || ""} 
+                            alt={`${user.firstName} ${user.lastName}`} 
+                          />
+                          <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
+                            {user.firstName?.[0]?.toUpperCase()}{user.lastName?.[0]?.toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="text-sm">
+                          <div className="font-medium">{user.firstName} {user.lastName}</div>
+                          <div className="text-muted-foreground text-xs">{user.email}</div>
+                        </div>
                       </div>
                       <Button variant="destructive" onClick={handleSignOut}>
                         Sign Out
@@ -181,6 +219,7 @@ export function Navbar() {
           </Sheet>
         </div>
       </div>
-    </header>
-  );
+    </div>
+  </header>
+  )
 }

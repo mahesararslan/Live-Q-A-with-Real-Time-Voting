@@ -37,26 +37,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Clean URL
           window.history.replaceState({}, document.title, window.location.pathname);
           
-          // TODO: Fetch user data using the token
-          // For now, we'll create a mock user object
-          setUser({
-            id: parseInt(userId),
-            firstName: 'User',
-            lastName: '',
-            email: 'user@example.com'
-          });
+          // Fetch user data using the getUserDetails API
+          try {
+            const userData = await authApi.getUserDetails(parseInt(userId));
+            setUser(userData);
+          } catch (error) {
+            console.error('Failed to fetch user details:', error);
+            // Clear invalid auth
+            authApi.logout();
+          }
         } else {
           // Check for stored auth
           const { token, userId } = authApi.getStoredAuth();
           if (token && userId) {
-            // TODO: Validate token and fetch user data
-            // For now, we'll create a mock user object
-            setUser({
-              id: parseInt(userId),
-              firstName: 'User',
-              lastName: '',
-              email: 'user@example.com'
-            });
+            try {
+              // Fetch user data for stored auth
+              const userData = await authApi.getUserDetails(parseInt(userId));
+              setUser(userData);
+            } catch (error) {
+              console.error('Failed to fetch user details:', error);
+              // Clear invalid auth
+              authApi.logout();
+            }
           }
         }
       } catch (error) {
@@ -76,14 +78,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authPayload = await authApi.signIn({ email, password });
       authApi.storeAuth(authPayload);
       
-      // TODO: Fetch user data using the token
-      // For now, we'll create a mock user object
-      setUser({
-        id: authPayload.userId,
-        firstName: 'User',
-        lastName: '',
-        email: email
-      });
+      // Fetch user data using the getUserDetails API
+      const userData = await authApi.getUserDetails(authPayload.userId);
+      setUser(userData);
     } catch (error) {
       console.error('Sign in failed:', error);
       throw error;

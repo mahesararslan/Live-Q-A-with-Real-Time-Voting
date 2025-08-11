@@ -49,6 +49,18 @@ const SIGN_IN_MUTATION = `
   }
 `;
 
+const GET_USER_QUERY = `
+  query GetUser($id: Int!) {
+    getUser(id: $id) {
+      id
+      firstName
+      lastName
+      email
+      avatarUrl
+    }
+  }
+`;
+
 export const authApi = {
   // Sign up with email/password
   signUp: async (input: SignUpInput): Promise<User> => {
@@ -93,5 +105,11 @@ export const authApi = {
       localStorage.setItem('token', payload.token);
       localStorage.setItem('userId', payload.userId.toString());
     }
+  },
+
+  // Get user details by ID
+  getUserDetails: async (id: number): Promise<User> => {
+    const response = await graphqlRequest<{ getUser: User }>(GET_USER_QUERY, { id });
+    return response.getUser;
   },
 };
