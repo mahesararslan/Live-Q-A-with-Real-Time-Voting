@@ -12,4 +12,5 @@ export class CreateRoomInput {
   @IsOptional()
   @IsString()
   description?: string;
+
 }

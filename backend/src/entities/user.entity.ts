@@ -4,6 +4,7 @@ import {
   CreateDateColumn,
   Entity,
   OneToMany,
+  ManyToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -38,8 +39,8 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column({ nullable: true }) // for google users
-  password: string; // Not exposed in GraphQL for security
+  @Column({ nullable: true })
+  password: string;
 
   @Field()
   @CreateDateColumn()
@@ -61,4 +62,9 @@ export class User {
   @Field(() => [Vote], { nullable: true })
   @OneToMany(() => Vote, (vote) => vote.user)
   votes: Vote[];
+
+  // 🆕 Many-to-Many relationship for joined rooms
+  @Field(() => [Room], { nullable: true })
+  @ManyToMany(() => Room, (room) => room.participants)
+  joinedRooms: Room[];
 }

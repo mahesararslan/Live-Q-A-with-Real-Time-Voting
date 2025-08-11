@@ -77,12 +77,6 @@ export default function CreateRoomPage() {
             transition={{ duration: 0.6 }}
             className="mb-8"
           >
-            <Button variant="ghost" asChild className="mb-4">
-              <Link href="/rooms" className="flex items-center gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Rooms
-              </Link>
-            </Button>
             
             <h1 className="text-3xl md:text-4xl font-bold mb-2">Create New Room</h1>
             <p className="text-muted-foreground text-lg">

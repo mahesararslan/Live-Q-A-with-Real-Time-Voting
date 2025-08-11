@@ -5,6 +5,8 @@ import {
   Entity,
   ManyToOne,
   OneToMany,
+  ManyToMany,
+  JoinTable,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -20,7 +22,7 @@ export class Room {
 
   @Field()
   @Column({ unique: true })
-  code: string; // Unique room code for joining
+  code: string;
 
   @Field()
   @Column()
@@ -50,7 +52,11 @@ export class Room {
   @Column({ nullable: true })
   endedAt?: Date;
 
-  // Relations
+  @Field(() => Int)
+  @Column()
+  adminId: number;
+
+  // Relations 
   @Field(() => User)
   @ManyToOne(() => User, (user) => user.adminRooms, { onDelete: 'CASCADE' })
   admin: User;
@@ -59,9 +65,15 @@ export class Room {
   @OneToMany(() => Question, (question) => question.room, { cascade: true })
   questions: Question[];
 
-  @Field(() => Int)
-  @Column()
-  adminId: number;
+  // 🆕 Many-to-Many relationship for participants
+  @Field(() => [User], { nullable: true })
+  @ManyToMany(() => User, (user) => user.joinedRooms, { cascade: ['insert', 'update'] })
+  @JoinTable({
+    name: 'room_participants', // Custom junction table name
+    joinColumn: { name: 'roomId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'userId', referencedColumnName: 'id' },
+  })
+  participants: User[];
 
   // Computed fields
   @Field(() => Int)
@@ -72,5 +84,10 @@ export class Room {
   @Field(() => Int)
   async activeQuestions(): Promise<number> {
     return this.questions?.filter(q => !q.isDeleted).length || 0;
+  }
+
+  @Field(() => Int)
+  async participantCount(): Promise<number> {
+    return this.participants?.length || 0;
   }
 }
