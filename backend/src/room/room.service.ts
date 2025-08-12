@@ -18,13 +18,26 @@ export class RoomService {
     // Generate a unique room code
     const roomCode = await this.generateUniqueRoomCode();
     
+    // Find the admin user first to ensure they exist
+    const admin = await this.userRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new Error('Admin user not found');
+    }
+    
     const room = this.roomRepo.create({
       ...createRoomInput,
       code: roomCode,
       adminId: adminId,
     });
     
-    return this.roomRepo.save(room);
+    // Save the room first
+    const savedRoom = await this.roomRepo.save(room);
+    
+    // Return the room with admin relationship loaded
+    return this.roomRepo.findOne({
+      where: { id: savedRoom.id },
+      relations: ['admin'],
+    });
   }
 
   findAll() {

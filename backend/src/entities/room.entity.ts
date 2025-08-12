@@ -7,6 +7,7 @@ import {
   OneToMany,
   ManyToMany,
   JoinTable,
+  JoinColumn,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -59,6 +60,7 @@ export class Room {
   // Relations 
   @Field(() => User)
   @ManyToOne(() => User, (user) => user.adminRooms, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'adminId' })
   admin: User;
 
   @Field(() => [Question], { nullable: true })
