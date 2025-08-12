@@ -18,6 +18,8 @@ export class RoomResolver {
     @Args('createRoomInput') createRoomInput: CreateRoomInput,
     @CurrentUser() user: JwtUser,
   ) {
+    console.log("Creating room:", createRoomInput);
+    console.log("User Object from JWT:", user);
     return this.roomService.create(createRoomInput, user.userId);
   }
 

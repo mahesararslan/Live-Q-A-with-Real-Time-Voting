@@ -26,8 +26,13 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
-    const response = await this.authService.login(req.user.id);
+    console.log("Google callback user:", req.user);
+    
+    // req.user is the User object returned from GoogleStrategy
+    const user = req.user;
+    const response = await this.authService.login(user);
+    
     const url = process.env.FRONTEND_URL || 'http://localhost:3001';
-    res.redirect(`${url}?token=${response.token}&userId=${req.user.id}`);
+    res.redirect(`${url}?token=${response.token}&userId=${user.id}`);
   }
 }

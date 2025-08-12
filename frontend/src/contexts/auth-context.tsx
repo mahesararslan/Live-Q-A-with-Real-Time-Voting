@@ -83,7 +83,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
     } catch (error) {
       console.error('Sign in failed:', error);
-      throw error;
+      
+      // Enhanced error handling for specific cases
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (errorMessage.includes('Entity not found')) {
+        throw new Error('Invalid email or password. Please check your credentials and try again.');
+      } else if (errorMessage.includes('Cannot return null for non-nullable field')) {
+        throw new Error('Account data error. Please try again or contact support.');
+      } else {
+        throw new Error('Sign in failed. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +108,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signIn(data.email, data.password);
     } catch (error) {
       console.error('Sign up failed:', error);
-      throw error;
+      
+      // Enhanced error handling for signup
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (errorMessage.includes('duplicate key value violates unique constraint')) {
+        throw new Error('An account with this email already exists. Please sign in instead.');
+      } else if (errorMessage.includes('validation failed')) {
+        throw new Error('Please check your information and try again.');
+      } else {
+        throw new Error('Sign up failed. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }

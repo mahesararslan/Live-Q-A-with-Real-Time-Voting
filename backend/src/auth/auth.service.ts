@@ -58,6 +58,7 @@ export class AuthService {
   }
 
   async validateJwtUser(userId: number) {
+    console.log("IN validateJwtUser with ID:", userId);
     const user = await this.userRepo.findOneByOrFail({ id: userId });
     const jwtUser: JwtUser = {
       userId: user.id,

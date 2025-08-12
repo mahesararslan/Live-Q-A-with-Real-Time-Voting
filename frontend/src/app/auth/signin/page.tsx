@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react"; // Add useEffect import
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Eye, EyeOff, MessageSquare, Mail, Lock } from "lucide-react";
+import { Eye, EyeOff, MessageSquare, Mail, Lock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -45,10 +45,23 @@ export default function SignInPage() {
     },
   });
 
-  // Redirect if already authenticated
+  // ✅ Move redirect logic to useEffect
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
+
+  // ✅ Show loading state while redirecting
   if (isAuthenticated) {
-    router.push('/rooms');
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/20">
+        <div className="text-center">
+          {/* <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div> */}
+          <Loader2 />
+        </div>
+      </div>
+    );
   }
 
   const onSubmit = async (data: SignInForm) => {
@@ -56,7 +69,7 @@ export default function SignInPage() {
     try {
       await signIn(data.email, data.password);
       toast.success("Successfully signed in!");
-      router.push('/rooms');
+      // ✅ The useEffect will handle the redirect
     } catch (error) {
       console.error('Sign in error:', error);
       toast.error(error instanceof Error ? error.message : "Failed to sign in. Please try again.");

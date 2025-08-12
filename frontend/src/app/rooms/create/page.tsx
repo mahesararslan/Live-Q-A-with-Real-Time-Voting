@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ProtectedRoute } from "@/components/protected-route";
 import {
@@ -24,10 +25,11 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import Link from "next/link";
+import { createRoom } from "@/lib/api/room";
 
 const createRoomSchema = z.object({
   title: z.string().min(3, "Room title must be at least 3 characters").max(100, "Title too long"),
-  description: z.string().min(10, "Description must be at least 10 characters").max(500, "Description too long"),
+  description: z.string().optional(),
 });
 
 type CreateRoomForm = z.infer<typeof createRoomSchema>;
@@ -47,17 +49,19 @@ export default function CreateRoomPage() {
   const onSubmit = async (data: CreateRoomForm) => {
     setIsLoading(true);
     try {
-      // TODO: Create room API call
       console.log("Creating room:", data);
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Call the backend API
+      const room = await createRoom({
+        title: data.title,
+        description: data.description || undefined,
+      });
       
-      // Mock room ID
-      const roomId = "room-" + Date.now();
+      toast.success(`Room "${room.title}" created successfully!`);
+      toast.info(`Room code: ${room.code}`, { duration: 5000 });
       
-      toast.success("Room created successfully!");
-      router.push(`/rooms/${roomId}`);
+      // Redirect to the room page
+      router.push(`/rooms/${room.code}`);
     } catch (error) {
       console.error('Create room error:', error);
       toast.error("Failed to create room. Please try again.");
@@ -129,12 +133,12 @@ export default function CreateRoomPage() {
                       name="description"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Description</FormLabel>
+                          <FormLabel>Description (Optional)</FormLabel>
                           <FormControl>
-                            <textarea
+                            <Textarea
                               {...field}
                               placeholder="Describe what this Q&A session is about, what topics will be covered, and any guidelines for participants..."
-                              className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="min-h-[120px] resize-none"
                             />
                           </FormControl>
                           <FormDescription>

@@ -34,6 +34,9 @@ export class GoogleStrategy extends PassportStrategy(Strategy) {
         avatarUrl: profile.photos[0].value,
         password: "", 
     });
+    console.log("Validated Google user:", user);
+    
+    // Return the user object that will be attached to req.user
     done(null, user); 
   }
   
