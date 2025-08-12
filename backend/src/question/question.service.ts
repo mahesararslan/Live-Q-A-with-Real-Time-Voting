@@ -4,16 +4,20 @@ import { UpdateQuestionInput } from './dto/update-question.input';
 import { Question } from 'src/entities/question.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventsGateway } from 'src/events/events.gateway';
 
 @Injectable()
 export class QuestionService {
 
   constructor(
+    private eventsGateway: EventsGateway,
     @InjectRepository(Question) private readonly questionRepo: Repository<Question>,
     ) {}
 
   create(createQuestionInput: CreateQuestionInput) {
     const question = this.questionRepo.create(createQuestionInput);
+    // Emit the new question event
+    this.eventsGateway.sendMessage(question);
     return this.questionRepo.save(question);
   }
 

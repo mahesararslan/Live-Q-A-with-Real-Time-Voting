@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { 
   Send, 
   ThumbsUp, 
@@ -12,7 +14,11 @@ import {
   SortDesc,
   Clock,
   Crown,
-  MessageSquare
+  MessageSquare,
+  Copy,
+  ExternalLink,
+  AlertCircle,
+  Loader2
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProtectedRoute } from "@/components/protected-route";
+import { useAuth } from "@/contexts/auth-context";
+import { getRoomByCode, joinRoom, leaveRoom, type Room } from "@/lib/api/room";
 
 // Mock data for demonstration
 const mockRoom = {
@@ -71,23 +79,80 @@ export default function RoomPage({
 }: { 
   params: Promise<{ id: string }> 
 }) {
-  const [questions, setQuestions] = useState(mockQuestions);
+  const { user } = useAuth();
+  const router = useRouter();
+  
+  // State management
+  const [room, setRoom] = useState<Room | null>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
   const [newQuestion, setNewQuestion] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "votes">("votes");
-  const [isLoading, setIsLoading] = useState(false);
-  const [roomStatus, setRoomStatus] = useState<"active" | "ended">(mockRoom.status as "active");
-  const [roomId, setRoomId] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [roomCode, setRoomCode] = useState<string>("");
+  const [hasJoined, setHasJoined] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Resolve params for Next.js 15
   useEffect(() => {
     params.then((resolvedParams) => {
-      setRoomId(resolvedParams.id);
+      setRoomCode(resolvedParams.id);
     });
   }, [params]);
 
-  // Check if current user is the room creator/admin
-  const isRoomCreator = currentUser.id === mockRoom.admin.id;
+  // Load room data when room code is available
+  useEffect(() => {
+    if (roomCode && user) {
+      loadRoomData();
+    }
+  }, [roomCode, user]);
+
+  const loadRoomData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Fetch room data
+      const roomData = await getRoomByCode(roomCode);
+      
+      if (!roomData) {
+        toast.error("Room not found");
+        router.push('/rooms/join');
+        return;
+      }
+
+      if (!roomData.isActive || roomData.isEnded) {
+        toast.error("This room is no longer active");
+        router.push('/rooms/join');
+        return;
+      }
+
+      setRoom(roomData);
+      
+      // Check if user is already a participant
+      const isParticipant = roomData.participants?.some(p => p.id === user?.id);
+      
+      if (!isParticipant) {
+        // Auto-join the room if not already a participant
+        await joinRoom(roomCode);
+        // Reload room data to get updated participant list
+        const updatedRoom = await getRoomByCode(roomCode);
+        setRoom(updatedRoom);
+      }
+      
+      setHasJoined(true);
+      toast.success(`Welcome to "${roomData.title}"!`);
+      
+    } catch (error) {
+      console.error('Error loading room:', error);
+      toast.error("Failed to load room data");
+      router.push('/rooms/join');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper functions
+  const isRoomCreator = user && room && room.admin.id === user.id;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -99,60 +164,75 @@ export default function RoomPage({
 
   const handleSubmitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newQuestion.trim() || isLoading) return;
+    if (!newQuestion.trim() || isSubmitting || !room || !user) return;
 
-    setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
+    setIsSubmitting(true);
+    try {
+      // TODO: Replace with actual API call to create question
       const question = {
         id: `q${Date.now()}`,
         text: newQuestion,
-        author: currentUser,
+        author: {
+          id: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          avatar: user.avatarUrl || "",
+        },
         votes: 0,
         timestamp: new Date().toISOString(),
         hasVoted: false,
         isAnswered: false
       };
-      
-      setQuestions(prev => [...prev, question]);
+
+      setQuestions(prev => [question, ...prev]);
       setNewQuestion("");
-      setIsLoading(false);
-    }, 500);
+      toast.success("Question submitted!");
+      
+    } catch (error) {
+      console.error('Error submitting question:', error);
+      toast.error("Failed to submit question");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleVote = (questionId: string) => {
-    setQuestions(prev => prev.map(q => {
-      if (q.id === questionId) {
-        return {
-          ...q,
-          votes: q.hasVoted ? q.votes - 1 : q.votes + 1,
-          hasVoted: !q.hasVoted
-        };
-      }
-      return q;
-    }));
+  const handleVote = async (questionId: string) => {
+    try {
+      // TODO: Replace with actual API call
+      setQuestions(prev => prev.map(q => 
+        q.id === questionId 
+          ? { ...q, votes: q.hasVoted ? q.votes - 1 : q.votes + 1, hasVoted: !q.hasVoted }
+          : q
+      ));
+      
+    } catch (error) {
+      console.error('Error voting:', error);
+      toast.error("Failed to vote");
+    }
   };
 
   const handleEndSession = async () => {
-    if (!isRoomCreator) return;
+    if (!isRoomCreator || !room) return;
     
-    setIsLoading(true);
     try {
-      // TODO: Call API to end session and delete all messages
-    //   console.log("Ending session for room:", params.id);
+      // TODO: Replace with actual API call to end room
+      toast.success("Session ended successfully");
+      router.push('/');
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setRoomStatus("ended");
-      setQuestions([]); // Clear all questions
-      
-      // TODO: Redirect to rooms page or show ended state
     } catch (error) {
-      console.error('Failed to end session:', error);
-    } finally {
-      setIsLoading(false);
+      console.error('Error ending session:', error);
+      toast.error("Failed to end session");
+    }
+  };
+
+  const handleShareRoom = async () => {
+    const shareUrl = `${window.location.origin}/rooms/join?code=${roomCode}`;
+    
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Room link copied to clipboard!");
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      toast.error("Failed to copy link");
     }
   };
 
@@ -174,6 +254,34 @@ export default function RoomPage({
     return `${Math.floor(diffInMinutes / 1440)}d ago`;
   };
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-purple-500" />
+          <p className="text-gray-400">Loading room...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Room not found or error state
+  if (!room) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+          <h2 className="text-2xl font-bold text-white mb-2">Room Not Found</h2>
+          <p className="text-gray-400 mb-6">The room you're looking for doesn't exist or has ended.</p>
+          <Button onClick={() => router.push('/rooms/join')} className="bg-purple-600 hover:bg-purple-700">
+            Join Another Room
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
@@ -192,41 +300,36 @@ export default function RoomPage({
                     <Badge className="bg-green-500 hover:bg-green-600">Live</Badge>
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Users className="h-4 w-4" />
-                      <span>{mockRoom.participants} participants</span>
+                      <span>{room.participants?.length || 0} participants</span>
                     </div>
                   </div>
-                  <CardTitle className="text-2xl mb-2">{mockRoom.title}</CardTitle>
+                  <CardTitle className="text-2xl mb-2">{room.title}</CardTitle>
                   <CardDescription className="text-base">
-                    {mockRoom.description}
+                    {room.description}
                   </CardDescription>
                   <div className="flex items-center gap-2 mt-3">
                     <Avatar className="h-6 w-6">
-                      <AvatarImage src={mockRoom.admin.avatar} />
-                      <AvatarFallback>{mockRoom.admin.name[0]}</AvatarFallback>
+                      <AvatarImage src={room.admin.avatarUrl || ""} />
+                      <AvatarFallback>{room.admin.firstName[0]}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm text-muted-foreground">
-                      Hosted by {mockRoom.admin.name}
+                      Hosted by {room.admin.firstName} {room.admin.lastName}
                     </span>
                     <Crown className="h-4 w-4 text-yellow-500" />
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleShareRoom}>
                     <Share2 className="h-4 w-4 mr-2" />
                     Share
                   </Button>
-                  {isRoomCreator && roomStatus === "active" && (
+                  {isRoomCreator && (
                     <Button 
                       variant="destructive" 
                       size="sm"
                       onClick={handleEndSession}
-                      disabled={isLoading}
                     >
-                      {isLoading ? (
-                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                      ) : (
-                        <Settings className="h-4 w-4 mr-2" />
-                      )}
+                      <Settings className="h-4 w-4 mr-2" />
                       End Session
                     </Button>
                   )}
@@ -354,16 +457,16 @@ export default function RoomPage({
                     onChange={(e) => setNewQuestion(e.target.value)}
                     placeholder="Ask a question..."
                     className="h-12 text-base"
-                    disabled={isLoading}
+                    disabled={isSubmitting}
                   />
                 </div>
                 <Button
                   type="submit"
                   size="lg"
-                  disabled={!newQuestion.trim() || isLoading}
+                  disabled={!newQuestion.trim() || isSubmitting}
                   className="px-6"
                 >
-                  {isLoading ? (
+                  {isSubmitting ? (
                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <Send className="h-4 w-4" />

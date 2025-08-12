@@ -9,5 +9,10 @@ export class CreateQuestionInput {
   content: string;
 
   @Field(() => Int)
+  @IsNotEmpty()
   roomId: number;
+
+  @Field()
+  @IsNotEmpty()
+  userId: number;
 }

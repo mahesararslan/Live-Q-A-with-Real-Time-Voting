@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { RoomModule } from './room/room.module';
 import { VoteModule } from './vote/vote.module';
 import { QuestionModule } from './question/question.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -39,6 +40,8 @@ import { QuestionModule } from './question/question.module';
     QuestionModule,
 
     VoteModule,
+
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
