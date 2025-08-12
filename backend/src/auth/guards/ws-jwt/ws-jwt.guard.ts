@@ -19,10 +19,10 @@ export class WsJwtGuard implements CanActivate {
   }
 
   static validateToken(client: Socket) {
-    const { authorization } = client.handshake.headers; // client.handshake.auth is used in WebSocket connections but since for now we are using postman so using headers.
-    Logger.log({ authorization });
+    const { token } = client.handshake.auth; // client.handshake.auth is used in WebSocket connections but since for now we are using postman so using headers.
+    Logger.log({ token });
 
-    const token: string = authorization?.split(' ')[1];
+    // const token: string = authorization?.split(' ')[1];
     const jwtSecret = process.env.JWT_SECRET;
     console.log('token:', token);
     const payload = verify(token, jwtSecret);

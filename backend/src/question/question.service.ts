@@ -14,19 +14,44 @@ export class QuestionService {
     @InjectRepository(Question) private readonly questionRepo: Repository<Question>,
     ) {}
 
-  create(createQuestionInput: CreateQuestionInput) {
+  async create(createQuestionInput: CreateQuestionInput) {
     const question = this.questionRepo.create(createQuestionInput);
+    console.log('Creating question:', question);
+    
+    const savedQuestion = await this.questionRepo.save(question);
+    
+    // Fetch the question with relations
+    const questionWithRelations = await this.questionRepo.findOne({
+      where: { id: savedQuestion.id },
+      relations: ['user', 'room'],
+    });
+    
     // Emit the new question event
-    this.eventsGateway.sendMessage(question);
-    return this.questionRepo.save(question);
+    this.eventsGateway.sendMessage(questionWithRelations);
+    
+    return questionWithRelations; 
   }
 
   findAll() {
-    return this.questionRepo.find();
+    return this.questionRepo.find({
+      relations: ['user', 'room'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  findByRoom(roomId: number) {
+    return this.questionRepo.find({
+      where: { roomId },
+      relations: ['user', 'room'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   findOne(id: number) {
-    return this.questionRepo.findOne({ where: { id } });
+    return this.questionRepo.findOne({ 
+      where: { id },
+      relations: ['user', 'room'],
+    });
   }
 
   update(id: number, updateQuestionInput: UpdateQuestionInput) {

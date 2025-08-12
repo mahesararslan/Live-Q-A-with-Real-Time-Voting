@@ -13,9 +13,14 @@ export class QuestionResolver {
     return this.questionService.create(createQuestionInput);
   }
 
-  @Query(() => [Question], { name: 'question' })
+  @Query(() => [Question], { name: 'questions' })
   findAll() {
     return this.questionService.findAll();
+  }
+
+  @Query(() => [Question], { name: 'questionsByRoom' })
+  findByRoom(@Args('roomId', { type: () => Int }) roomId: number) {
+    return this.questionService.findByRoom(roomId);
   }
 
   @Query(() => Question, { name: 'question' })

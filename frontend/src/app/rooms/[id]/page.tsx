@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -30,49 +30,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/contexts/auth-context";
 import { getRoomByCode, joinRoom, leaveRoom, type Room } from "@/lib/api/room";
-
-// Mock data for demonstration
-const mockRoom = {
-  id: "room-123",
-  title: "Weekly Team Standup Q&A",
-  description: "Ask questions about project updates and sprint planning",
-  admin: { name: "John Doe", avatar: "/avatars/john.jpg", id: "user-1" },
-  participants: 12,
-  status: "active",
-  createdAt: "2024-01-15T10:00:00Z"
-};
-
-const currentUser = { id: "user-1", name: "John Doe", avatar: "/avatars/current.jpg" }; // This should come from auth context
-
-const mockQuestions = [
-  {
-    id: "q1",
-    text: "What's the timeline for the new feature rollout?",
-    author: { name: "Alice Johnson", avatar: "/avatars/alice.jpg", id: "user-2" },
-    votes: 8,
-    timestamp: "2024-01-15T10:05:00Z",
-    hasVoted: false,
-    isAnswered: false
-  },
-  {
-    id: "q2", 
-    text: "Are we planning to refactor the authentication system this quarter?",
-    author: { name: "Bob Smith", avatar: "/avatars/bob.jpg", id: "user-3" },
-    votes: 12,
-    timestamp: "2024-01-15T10:03:00Z",
-    hasVoted: true,
-    isAnswered: true
-  },
-  {
-    id: "q3",
-    text: "What are the performance benchmarks we're aiming for?",
-    author: { name: "Carol Williams", avatar: "/avatars/carol.jpg", id: "user-4" },
-    votes: 5,
-    timestamp: "2024-01-15T10:07:00Z",
-    hasVoted: false,
-    isAnswered: false
-  }
-];
+import { questionApi, type Question, type CreateQuestionInput } from "@/lib/api/question";
+import { useSocket } from "@/hooks/useSocket";
 
 export default function RoomPage({ 
   params 
@@ -84,14 +43,26 @@ export default function RoomPage({
   
   // State management
   const [room, setRoom] = useState<Room | null>(null);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [newQuestion, setNewQuestion] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "votes">("votes");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [roomCode, setRoomCode] = useState<string>("");
-  const [hasJoined, setHasJoined] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Memoize the new message handler to prevent infinite re-renders
+  const handleNewMessage = useCallback((newQuestion: Question) => {
+    console.log('Received new question via socket:', newQuestion);
+    setQuestions(prev => [newQuestion, ...prev]);
+    toast.success(`New question from ${newQuestion.user.firstName}!`);
+  }, []);
+
+  // Socket integration
+  const { isConnected, connectionError } = useSocket({
+    autoConnect: true,
+    onNewMessage: handleNewMessage
+  });
 
   // Resolve params for Next.js 15
   useEffect(() => {
@@ -139,7 +110,15 @@ export default function RoomPage({
         setRoom(updatedRoom);
       }
       
-      setHasJoined(true);
+      // Load existing questions for the room
+      try {
+        const roomQuestions = await questionApi.getQuestionsByRoom(roomData.id);
+        setQuestions(roomQuestions);
+      } catch (questionError) {
+        console.error('Error loading questions:', questionError);
+        // Continue without questions if they fail to load
+      }
+      
       toast.success(`Welcome to "${roomData.title}"!`);
       
     } catch (error) {
@@ -168,24 +147,19 @@ export default function RoomPage({
 
     setIsSubmitting(true);
     try {
-      // TODO: Replace with actual API call to create question
-      const question = {
-        id: `q${Date.now()}`,
-        text: newQuestion,
-        author: {
-          id: user.id,
-          name: `${user.firstName} ${user.lastName}`,
-          avatar: user.avatarUrl || "",
-        },
-        votes: 0,
-        timestamp: new Date().toISOString(),
-        hasVoted: false,
-        isAnswered: false
+      // Create question using GraphQL mutation
+      const createQuestionInput: CreateQuestionInput = {
+        content: newQuestion,
+        roomId: room.id,
+        userId: user.id
       };
 
-      setQuestions(prev => [question, ...prev]);
+      const createdQuestion = await questionApi.createQuestion(createQuestionInput);
+      
+      // Add to local state optimistically (the socket will also broadcast this)
+      setQuestions(prev => [createdQuestion, ...prev]);
       setNewQuestion("");
-      toast.success("Question submitted!");
+      toast.success("Question submitted successfully!");
       
     } catch (error) {
       console.error('Error submitting question:', error);
@@ -195,12 +169,16 @@ export default function RoomPage({
     }
   };
 
-  const handleVote = async (questionId: string) => {
+  const handleVote = async (questionId: number) => {
     try {
-      // TODO: Replace with actual API call
+      // TODO: Replace with actual API call for voting
       setQuestions(prev => prev.map(q => 
         q.id === questionId 
-          ? { ...q, votes: q.hasVoted ? q.votes - 1 : q.votes + 1, hasVoted: !q.hasVoted }
+          ? { 
+              ...q, 
+              voteCount: q.hasVoted ? q.voteCount - 1 : q.voteCount + 1, 
+              hasVoted: !q.hasVoted 
+            }
           : q
       ));
       
@@ -238,9 +216,9 @@ export default function RoomPage({
 
   const sortedQuestions = [...questions].sort((a, b) => {
     if (sortBy === "votes") {
-      return b.votes - a.votes;
+      return b.voteCount - a.voteCount;
     }
-    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
   const formatTimeAgo = (dateString: string) => {
@@ -302,6 +280,18 @@ export default function RoomPage({
                       <Users className="h-4 w-4" />
                       <span>{room.participants?.length || 0} participants</span>
                     </div>
+                    {/* Socket connection status */}
+                    <div className="flex items-center gap-1 text-xs">
+                      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <span className="text-muted-foreground">
+                        {isConnected ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+                    {connectionError && (
+                      <span className="text-xs text-red-500" title={connectionError}>
+                        Connection Error
+                      </span>
+                    )}
                   </div>
                   <CardTitle className="text-2xl mb-2">{room.title}</CardTitle>
                   <CardDescription className="text-base">
@@ -409,19 +399,19 @@ export default function RoomPage({
                           className="flex flex-col h-auto py-2 px-3 min-w-[50px]"
                         >
                           <ThumbsUp className="h-4 w-4 mb-1" />
-                          <span className="text-xs font-bold">{question.votes}</span>
+                          <span className="text-xs font-bold">{question.voteCount}</span>
                         </Button>
                       </div>
                       <div className="flex-1">
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <Avatar className="h-6 w-6">
-                              <AvatarImage src={question.author.avatar} />
-                              <AvatarFallback>{question.author.name[0]}</AvatarFallback>
+                              <AvatarImage src={question.user.avatarUrl || ""} />
+                              <AvatarFallback>{question.user.firstName[0]}</AvatarFallback>
                             </Avatar>
-                            <span className="text-sm font-medium">{question.author.name}</span>
+                            <span className="text-sm font-medium">{question.user.firstName} {question.user.lastName}</span>
                             <span className="text-xs text-muted-foreground">
-                              {formatTimeAgo(question.timestamp)}
+                              {formatTimeAgo(question.createdAt)}
                             </span>
                           </div>
                           {question.isAnswered && (
@@ -430,7 +420,7 @@ export default function RoomPage({
                             </Badge>
                           )}
                         </div>
-                        <p className="text-base leading-relaxed">{question.text}</p>
+                        <p className="text-base leading-relaxed">{question.content}</p>
                       </div>
                     </div>
                   </CardContent>
