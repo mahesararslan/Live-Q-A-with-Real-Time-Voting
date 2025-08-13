@@ -4,13 +4,11 @@ import { UpdateQuestionInput } from './dto/update-question.input';
 import { Question } from 'src/entities/question.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EventsGateway } from 'src/events/events.gateway';
 
 @Injectable()
 export class QuestionService {
 
   constructor(
-    private eventsGateway: EventsGateway,
     @InjectRepository(Question) private readonly questionRepo: Repository<Question>,
     ) {}
 
@@ -26,8 +24,7 @@ export class QuestionService {
       relations: ['user', 'room'],
     });
     
-    // Emit the new question event
-    this.eventsGateway.sendMessage(questionWithRelations);
+    // Note: WebSocket events will be handled separately to avoid circular dependencies
     
     return questionWithRelations; 
   }
@@ -45,6 +42,28 @@ export class QuestionService {
       relations: ['user', 'room'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async findByRoomWithVoteInfo(roomId: number, userId?: number) {
+    const questions = await this.questionRepo.find({
+      where: { roomId },
+      relations: ['user', 'room', 'votes'],
+      order: { createdAt: 'DESC' },
+    });
+
+    // If userId is provided, add hasVoted information
+    if (userId) {
+      return questions.map(question => ({
+        ...question,
+        hasVoted: question.votes.some(vote => vote.userId === userId),
+        votes: undefined, // Remove votes array to avoid sending unnecessary data
+      }));
+    }
+
+    return questions.map(question => ({
+      ...question,
+      votes: undefined, // Remove votes array to avoid sending unnecessary data
+    }));
   }
 
   findOne(id: number) {

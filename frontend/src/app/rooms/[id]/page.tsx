@@ -51,17 +51,101 @@ export default function RoomPage({
   const [roomCode, setRoomCode] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Memoize the new message handler to prevent infinite re-renders
+  // Memoize the socket event handlers to prevent infinite re-renders
   const handleNewMessage = useCallback((newQuestion: Question) => {
     console.log('Received new question via socket:', newQuestion);
     setQuestions(prev => [newQuestion, ...prev]);
-    toast.success(`New question from ${newQuestion.user.firstName}!`);
+    toast.success(`New question from ${newQuestion.user?.firstName || 'Unknown'}`);
   }, []);
 
-  // Socket integration
-  const { isConnected, connectionError } = useSocket({
+  const handleUserJoined = useCallback((data: any) => {
+    console.log('User joined room:', data);
+    toast.info(`${data.user.firstName} joined the room`);
+  }, []);
+
+  const handleUserLeft = useCallback((data: any) => {
+    console.log('User left room:', data);
+    toast.info(`${data.user.firstName} left the room`);
+  }, []);
+
+  const handleJoinRoomSuccess = useCallback((data: any) => {
+    console.log('Successfully joined room:', data);
+    toast.success('Connected to room!');
+  }, []);
+
+  const handleJoinRoomError = useCallback((data: any) => {
+    console.error('Failed to join room:', data);
+    toast.error(data.message || 'Failed to join room');
+  }, []);
+
+  const handleVoteUpdated = useCallback((data: {
+    questionId: number;
+    userId: number;
+    voteCount: number;
+    hasVoted: boolean;
+    action: 'added' | 'removed';
+  }) => {
+    console.log('Vote updated:', data);
+    
+    // Update the question's vote count and user's vote status
+    setQuestions(prev => prev.map(q => {
+      if (q.id === data.questionId) {
+        // Update hasVoted only for the current user
+        const isCurrentUser = user && user.id === data.userId;
+        return {
+          ...q,
+          voteCount: data.voteCount,
+          hasVoted: isCurrentUser ? data.hasVoted : q.hasVoted
+        };
+      }
+      return q;
+    }));
+    
+    // Show feedback message
+    if (user && user.id === data.userId) {
+      toast.success(data.action === 'added' ? 'Vote added!' : 'Vote removed!');
+    }
+  }, [user]);
+
+  const handleSessionEnded = useCallback((data: {
+    roomCode: string;
+    endedBy: { firstName: string; lastName: string };
+    message: string;
+  }) => {
+    console.log('Session ended:', data);
+    toast.error(`Session ended: ${data.message}`);
+    // Redirect to home page after a short delay
+    setTimeout(() => {
+      router.push('/');
+    }, 2000);
+  }, [router]);
+
+  const handleSessionEndError = useCallback((data: { error: string; details?: string }) => {
+    console.error('Session end error:', data);
+    toast.error(data.details || data.error || 'Failed to end session');
+  }, []);
+
+  // Socket integration with room management
+  const { 
+    isConnected, 
+    connectionError, 
+    currentRoom,
+    joinRoom: socketJoinRoom,
+    leaveRoom: socketLeaveRoom,
+    sendMessage: socketSendMessage,
+    sendVote: socketSendVote,
+    endSession: socketEndSession,
+    userLeaveRoom: socketUserLeaveRoom
+  } = useSocket({
     autoConnect: true,
-    onNewMessage: handleNewMessage
+    onNewMessage: handleNewMessage,
+    onUserJoined: handleUserJoined,
+    onUserLeft: handleUserLeft,
+    onJoinRoomSuccess: handleJoinRoomSuccess,
+    onJoinRoomError: handleJoinRoomError,
+    onVoteUpdated: handleVoteUpdated,
+    onSessionEnded: handleSessionEnded,
+    onSessionEndError: handleSessionEndError
   });
 
   // Resolve params for Next.js 15
@@ -119,6 +203,12 @@ export default function RoomPage({
         // Continue without questions if they fail to load
       }
       
+      // Join the WebSocket room for real-time updates
+      if (user && isConnected) {
+        console.log('Joining WebSocket room:', roomCode);
+        socketJoinRoom(roomCode, user.id);
+      }
+      
       toast.success(`Welcome to "${roomData.title}"!`);
       
     } catch (error) {
@@ -147,19 +237,12 @@ export default function RoomPage({
 
     setIsSubmitting(true);
     try {
-      // Create question using GraphQL mutation
-      const createQuestionInput: CreateQuestionInput = {
-        content: newQuestion,
-        roomId: room.id,
-        userId: user.id
-      };
-
-      const createdQuestion = await questionApi.createQuestion(createQuestionInput);
+      // Send message via WebSocket (which will create the question and broadcast it)
+      socketSendMessage(newQuestion, roomCode, user.id);
       
-      // Add to local state optimistically (the socket will also broadcast this)
-      setQuestions(prev => [createdQuestion, ...prev]);
+      // Clear the input immediately for better UX
       setNewQuestion("");
-      toast.success("Question submitted successfully!");
+      toast.success("Question sent!");
       
     } catch (error) {
       console.error('Error submitting question:', error);
@@ -170,17 +253,16 @@ export default function RoomPage({
   };
 
   const handleVote = async (questionId: number) => {
+    if (!user || !room) {
+      toast.error("Authentication required to vote");
+      return;
+    }
+
     try {
-      // TODO: Replace with actual API call for voting
-      setQuestions(prev => prev.map(q => 
-        q.id === questionId 
-          ? { 
-              ...q, 
-              voteCount: q.hasVoted ? q.voteCount - 1 : q.voteCount + 1, 
-              hasVoted: !q.hasVoted 
-            }
-          : q
-      ));
+      // Send vote via WebSocket
+      socketSendVote(questionId, room.code, user.id);
+      
+      // The UI will be updated when we receive the voteUpdated event
       
     } catch (error) {
       console.error('Error voting:', error);
@@ -189,12 +271,12 @@ export default function RoomPage({
   };
 
   const handleEndSession = async () => {
-    if (!isRoomCreator || !room) return;
+    if (!isRoomCreator || !room || !user) return;
     
     try {
-      // TODO: Replace with actual API call to end room
-      toast.success("Session ended successfully");
-      router.push('/');
+      // Send end session via WebSocket
+      socketEndSession(room.code, user.id);
+      toast.info("Ending session...");
       
     } catch (error) {
       console.error('Error ending session:', error);
@@ -202,8 +284,28 @@ export default function RoomPage({
     }
   };
 
+  const handleLeaveChat = async () => {
+    if (!room || !user) return;
+    
+    try {
+      // Send leave room via WebSocket
+      socketUserLeaveRoom(room.code, user.id);
+      toast.info("Leaving chat...");
+      
+      // Redirect to home page
+      router.push('/');
+      
+    } catch (error) {
+      console.error('Error leaving chat:', error);
+      toast.error("Failed to leave chat");
+      // Still redirect even if WebSocket fails
+      router.push('/');
+    }
+  };
+
   const handleShareRoom = async () => {
-    const shareUrl = `${window.location.origin}/rooms/join?code=${roomCode}`;
+    // const shareUrl = `${window.location.origin}/rooms/join?code=${roomCode}`;
+    const shareUrl = roomCode;
     
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -313,7 +415,7 @@ export default function RoomPage({
                     <Share2 className="h-4 w-4 mr-2" />
                     Share
                   </Button>
-                  {isRoomCreator && (
+                  {isRoomCreator ? (
                     <Button 
                       variant="destructive" 
                       size="sm"
@@ -321,6 +423,16 @@ export default function RoomPage({
                     >
                       <Settings className="h-4 w-4 mr-2" />
                       End Session
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleLeaveChat}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Leave Chat
                     </Button>
                   )}
                 </div>

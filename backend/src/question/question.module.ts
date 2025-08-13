@@ -4,10 +4,10 @@ import { QuestionResolver } from './question.resolver';
 import { Type } from 'class-transformer';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Question } from 'src/entities/question.entity';
-import { EventsModule } from 'src/events/events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Question]), EventsModule],
+  imports: [TypeOrmModule.forFeature([Question])],
   providers: [QuestionResolver, QuestionService],
+  exports: [QuestionService],
 })
 export class QuestionModule {}

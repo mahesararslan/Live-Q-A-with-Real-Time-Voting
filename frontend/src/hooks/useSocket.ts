@@ -10,27 +10,91 @@ interface UseSocketOptions {
   namespace?: string;
   autoConnect?: boolean;
   onNewMessage?: (question: any) => void;
+  onUserJoined?: (data: any) => void;
+  onUserLeft?: (data: any) => void;
+  onJoinRoomSuccess?: (data: any) => void;
+  onJoinRoomError?: (data: any) => void;
+  onVoteUpdated?: (data: any) => void;
+  onSessionEnded?: (data: any) => void;
+  onSessionEndError?: (data: any) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
   const {
     namespace = '/events',
     autoConnect = true,
-    onNewMessage
+    onNewMessage,
+    onUserJoined,
+    onUserLeft,
+    onJoinRoomSuccess,
+    onJoinRoomError,
+    onVoteUpdated,
+    onSessionEnded,
+    onSessionEndError
   } = options;
 
   const [socket, setSocket] = useState<SocketIOClient | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
   const socketRef = useRef<SocketIOClient | null>(null);
 
-  // Memoize the onNewMessage callback to prevent re-renders
+  // Add these new callback handlers after the existing ones
+  const stableOnUserJoined = useCallback((data: any) => {
+    console.log('User joined:', data);
+    if (onUserJoined) {
+      onUserJoined(data);
+    }
+  }, [onUserJoined]);
+
+  const stableOnUserLeft = useCallback((data: any) => {
+    console.log('User left:', data);
+    if (onUserLeft) {
+      onUserLeft(data);
+    }
+  }, [onUserLeft]);
+
+  const stableOnJoinRoomSuccess = useCallback((data: any) => {
+    console.log('Joined room successfully:', data);
+    setCurrentRoom(data.roomId);
+    if (onJoinRoomSuccess) {
+      onJoinRoomSuccess(data);
+    }
+  }, [onJoinRoomSuccess]);
+
+  const stableOnJoinRoomError = useCallback((data: any) => {
+    console.error('Join room error:', data);
+    if (onJoinRoomError) {
+      onJoinRoomError(data);
+    }
+  }, [onJoinRoomError]);
   const stableOnNewMessage = useCallback((question: any) => {
     console.log('Received new message:', question);
     if (onNewMessage) {
       onNewMessage(question);
     }
   }, [onNewMessage]);
+
+  const stableOnVoteUpdated = useCallback((data: any) => {
+    console.log('Vote updated:', data);
+    if (onVoteUpdated) {
+      onVoteUpdated(data);
+    }
+  }, [onVoteUpdated]);
+
+  const stableOnSessionEnded = useCallback((data: any) => {
+    console.log('Session ended:', data);
+    if (onSessionEnded) {
+      onSessionEnded(data);
+    }
+  }, [onSessionEnded]);
+
+  const stableOnSessionEndError = useCallback((data: any) => {
+    console.error('Session end error:', data);
+    if (onSessionEndError) {
+      onSessionEndError(data);
+    }
+  }, [onSessionEndError]);
 
   useEffect(() => {
     if (!autoConnect) return;
@@ -72,8 +136,32 @@ export function useSocket(options: UseSocketOptions = {}) {
       setIsConnected(false);
     });
 
-    // Listen for new messages
+    // Listen for new messages and room events
     newSocket.on('newMessage', stableOnNewMessage);
+    newSocket.on('userJoined', stableOnUserJoined);
+    newSocket.on('userLeft', stableOnUserLeft);
+    newSocket.on('joinRoomSuccess', stableOnJoinRoomSuccess);
+    newSocket.on('joinRoomError', stableOnJoinRoomError);
+    
+    // Additional event listeners
+    newSocket.on('leaveRoomSuccess', (data: any) => {
+      console.log('Left room successfully:', data);
+      setCurrentRoom(null);
+    });
+
+    newSocket.on('messageError', (data: any) => {
+      console.error('Message error:', data);
+    });
+
+    newSocket.on('voteUpdated', stableOnVoteUpdated);
+
+    newSocket.on('voteError', (data: any) => {
+      console.error('Vote error:', data);
+    });
+
+    newSocket.on('sessionEnded', stableOnSessionEnded);
+
+    newSocket.on('sessionEndError', stableOnSessionEndError);
 
     socketRef.current = newSocket;
     setSocket(newSocket);
@@ -85,28 +173,47 @@ export function useSocket(options: UseSocketOptions = {}) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [namespace, autoConnect, stableOnNewMessage]); // Fixed dependencies
+  }, [namespace, autoConnect, stableOnNewMessage, stableOnUserJoined, stableOnUserLeft, stableOnJoinRoomSuccess, stableOnJoinRoomError, stableOnVoteUpdated, stableOnSessionEnded, stableOnSessionEndError]);
 
   // Methods to interact with socket
-  const emit = (event: string, data: any) => {
+  const emit = useCallback((event: string, data: any) => {
     if (socketRef.current && isConnected) {
       socketRef.current.emit(event, data);
+      console.log(`Emitting ${event}:`, data);
     } else {
       console.warn('Socket not connected, cannot emit event:', event);
     }
-  };
+  }, [isConnected]);
 
-  const joinRoom = (roomId: string | number) => {
-    emit('joinRoom', { roomId });
-  };
+  const joinRoom = useCallback((roomCode: string, userId: number) => {
+    console.log(`Joining room ${roomCode} with user ${userId}`);
+    emit('joinRoom', { roomCode, userId });
+  }, [emit]);
 
-  const leaveRoom = (roomId: string | number) => {
-    emit('leaveRoom', { roomId });
-  };
+  const leaveRoom = useCallback((roomCode: string, userId: number) => {
+    console.log(`Leaving room ${roomCode} with user ${userId}`);
+    emit('leaveRoom', { roomCode, userId });
+  }, [emit]);
 
-  const sendMessage = (message: string, roomId: string | number) => {
-    emit('message', { message, roomId });
-  };
+  const sendMessage = useCallback((content: string, roomCode: string, userId: number) => {
+    console.log(`Sending message to room ${roomCode}:`, content);
+    emit('message', { content, roomCode, userId });
+  }, [emit]);
+
+  const sendVote = useCallback((questionId: number, roomCode: string, userId: number) => {
+    console.log(`Sending vote for question ${questionId} in room ${roomCode}`);
+    emit('vote', { questionId, roomCode, userId });
+  }, [emit]);
+
+  const endSession = useCallback((roomCode: string, userId: number) => {
+    console.log(`Ending session for room ${roomCode}`);
+    emit('endSession', { roomCode, userId });
+  }, [emit]);
+
+  const userLeaveRoom = useCallback((roomCode: string, userId: number) => {
+    console.log(`User leaving room ${roomCode}`);
+    emit('leaveRoom', { roomCode, userId });
+  }, [emit]);
 
   const disconnect = () => {
     if (socketRef.current) {
@@ -126,10 +233,14 @@ export function useSocket(options: UseSocketOptions = {}) {
     socket,
     isConnected,
     connectionError,
+    currentRoom,
     emit,
     joinRoom,
     leaveRoom,
     sendMessage,
+    sendVote,
+    endSession,
+    userLeaveRoom,
     disconnect,
     reconnect,
   };

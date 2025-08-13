@@ -1,9 +1,17 @@
 import { Module } from '@nestjs/common';
 import { EventsGateway } from './events.gateway';
 import { UserModule } from 'src/user/user.module';
+import { QuestionModule } from 'src/question/question.module';
+import { RoomModule } from 'src/room/room.module';
+import { VoteModule } from 'src/vote/vote.module';
 
 @Module({
-  imports: [UserModule],
+  imports: [
+    UserModule, 
+    QuestionModule, 
+    RoomModule,
+    VoteModule
+  ],
   providers: [EventsGateway],
   exports: [EventsGateway],
 })
