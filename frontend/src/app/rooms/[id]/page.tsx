@@ -17,13 +17,21 @@ import {
   MessageSquare,
   Copy,
   ExternalLink,
-  AlertCircle
+  AlertCircle,
+  MoreVertical,
+  ChevronDown
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LoadingState } from "@/components/ui/loading";
 import { ProtectedRoute } from "@/components/protected-route";
@@ -48,13 +56,22 @@ export default function RoomPage({
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [roomCode, setRoomCode] = useState<string>("");
+  const [optimisticVotes, setOptimisticVotes] = useState<Record<string, boolean>>({});
+  
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Memoize the socket event handlers to prevent infinite re-renders
   const handleNewMessage = useCallback((newQuestion: Question) => {
     console.log('Received new question via socket:', newQuestion);
     setQuestions(prev => [newQuestion, ...prev]);
     toast.success(`New question from ${newQuestion.user?.firstName || 'Unknown'}`);
+    
+    // Scroll to top for new messages (newest first)
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = 0;
+    }
   }, []);
 
   const handleUserJoined = useCallback((data: any) => {
@@ -86,6 +103,13 @@ export default function RoomPage({
   }) => {
     console.log('Vote updated:', data);
     
+    // Clear optimistic vote for this question
+    setOptimisticVotes(prev => {
+      const newState = { ...prev };
+      delete newState[data.questionId];
+      return newState;
+    });
+    
     // Update the question's vote count and user's vote status
     setQuestions(prev => prev.map(q => {
       if (q.id === data.questionId) {
@@ -100,7 +124,7 @@ export default function RoomPage({
       return q;
     }));
     
-    // Show feedback message
+    // Show feedback message only for the current user
     if (user && user.id === data.userId) {
       toast.success(data.action === 'added' ? 'Vote added!' : 'Vote removed!');
     }
@@ -222,14 +246,6 @@ export default function RoomPage({
   // Helper functions
   const isRoomCreator = user && room && room.admin.id === user.id;
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [questions]);
-
   const handleSubmitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newQuestion.trim() || isSubmitting || !room || !user) return;
@@ -258,14 +274,56 @@ export default function RoomPage({
     }
 
     try {
+      // Optimistic update - immediately update UI
+      const wasVoted = optimisticVotes[questionId] ?? 
+        questions.find(q => q.id === questionId)?.hasVoted ?? false;
+      
+      // Set optimistic vote state
+      setOptimisticVotes(prev => ({
+        ...prev,
+        [questionId]: !wasVoted
+      }));
+
+      // Optimistically update question vote count in UI
+      setQuestions(prev => prev.map(q => {
+        if (q.id === questionId) {
+          return {
+            ...q,
+            hasVoted: !wasVoted,
+            voteCount: wasVoted ? q.voteCount - 1 : q.voteCount + 1
+          };
+        }
+        return q;
+      }));
+
       // Send vote via WebSocket
       socketSendVote(questionId, room.code, user.id);
       
-      // The UI will be updated when we receive the voteUpdated event
+      // The optimistic update will be corrected when we receive the voteUpdated event
       
     } catch (error) {
       console.error('Error voting:', error);
       toast.error("Failed to vote");
+      
+      // Revert optimistic update on error
+      setOptimisticVotes(prev => {
+        const newState = { ...prev };
+        delete newState[questionId];
+        return newState;
+      });
+      
+      // Revert question state
+      setQuestions(prev => prev.map(q => {
+        if (q.id === questionId) {
+          const originalVoted = q.hasVoted;
+          return {
+            ...q,
+            hasVoted: originalVoted,
+            voteCount: originalVoted ? q.voteCount + 1 : q.voteCount - 1
+          };
+        }
+        return q;
+      }));
     }
   };
 
@@ -361,220 +419,288 @@ export default function RoomPage({
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      <div className="container mx-auto px-4 py-6 max-w-4xl">
-        {/* Room Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <Card className="border-0 shadow-lg mb-6">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Badge className="bg-green-500 hover:bg-green-600">Live</Badge>
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <Users className="h-4 w-4" />
-                      <span>{room.participants?.length || 0} participants</span>
-                    </div>
-                    {/* Socket connection status */}
-                    <div className="flex items-center gap-1 text-xs">
-                      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                      <span className="text-muted-foreground">
-                        {isConnected ? 'Connected' : 'Disconnected'}
-                      </span>
-                    </div>
-                    {connectionError && (
-                      <span className="text-xs text-red-500" title={connectionError}>
-                        Connection Error
-                      </span>
-                    )}
-                  </div>
-                  <CardTitle className="text-2xl mb-2">{room.title}</CardTitle>
-                  <CardDescription className="text-base">
-                    {room.description}
-                  </CardDescription>
-                  <div className="flex items-center gap-2 mt-3">
-                    <Avatar className="h-6 w-6">
+        <div className="container mx-auto px-4 py-6 max-w-4xl">
+          {/* Room Header - Compact Version */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="mb-6"
+          >
+            <Card className="border-0 shadow-lg">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
                       <AvatarImage src={room.admin.avatarUrl || ""} />
                       <AvatarFallback>{room.admin.firstName[0]}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm text-muted-foreground">
-                      Hosted by {room.admin.firstName} {room.admin.lastName}
-                    </span>
-                    <Crown className="h-4 w-4 text-yellow-500" />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleShareRoom}>
-                    <Share2 className="h-4 w-4 mr-2" />
-                    Share
-                  </Button>
-                  {isRoomCreator ? (
-                    <Button 
-                      variant="destructive" 
-                      size="sm"
-                      onClick={handleEndSession}
-                    >
-                      <Settings className="h-4 w-4 mr-2" />
-                      End Session
-                    </Button>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={handleLeaveChat}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Leave Chat
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
-        </motion.div>
-
-        {/* Controls */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="mb-6"
-        >
-          <Card className="border-0 shadow-lg">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium">Sort by:</span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant={sortBy === "votes" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSortBy("votes")}
-                      className="flex items-center gap-2"
-                    >
-                      <SortDesc className="h-4 w-4" />
-                      Most Voted
-                    </Button>
-                    <Button
-                      variant={sortBy === "newest" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSortBy("newest")}
-                      className="flex items-center gap-2"
-                    >
-                      <Clock className="h-4 w-4" />
-                      Newest
-                    </Button>
-                  </div>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {questions.length} questions
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Questions List */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="space-y-4 mb-6"
-        >
-          <AnimatePresence>
-            {sortedQuestions.map((question, index) => (
-              <motion.div
-                key={question.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.4, delay: index * 0.1 }}
-              >
-                <Card className={`border-0 shadow-lg hover:shadow-xl transition-all duration-300 ${
-                  question.isAnswered ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : ''
-                }`}>
-                  <CardContent className="p-4">
-                    <div className="flex gap-4">
-                      <div className="flex flex-col items-center gap-2">
-                        <Button
-                          variant={question.hasVoted ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => handleVote(question.id)}
-                          className="flex flex-col h-auto py-2 px-3 min-w-[50px]"
-                        >
-                          <ThumbsUp className="h-4 w-4 mb-1" />
-                          <span className="text-xs font-bold">{question.voteCount}</span>
-                        </Button>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-6 w-6">
-                              <AvatarImage src={question.user.avatarUrl || ""} />
-                              <AvatarFallback>{question.user.firstName[0]}</AvatarFallback>
-                            </Avatar>
-                            <span className="text-sm font-medium">{question.user.firstName} {question.user.lastName}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatTimeAgo(question.createdAt)}
-                            </span>
-                          </div>
-                          {question.isAnswered && (
-                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                              Answered
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-base leading-relaxed">{question.content}</p>
+                    <div>
+                      <h2 className="font-semibold text-lg">{room.title}</h2>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Users className="h-3 w-3" />
+                        <span>{room.participants?.length || 0} participants</span>
+                        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-          <div ref={messagesEndRef} />
-        </motion.div>
+                  </div>
+                  
+                  {/* Desktop Action Buttons */}
+                  <div className="hidden sm:flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleShareRoom}>
+                      <Share2 className="h-4 w-4 mr-2" />
+                      Share
+                    </Button>
+                    {isRoomCreator ? (
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={handleEndSession}
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        End Session
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={handleLeaveChat}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Leave Chat
+                      </Button>
+                    )}
+                  </div>
 
-        {/* New Question Form */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="sticky bottom-4"
-        >
-          <Card className="border-0 shadow-xl">
-            <CardContent className="p-4">
-              <form onSubmit={handleSubmitQuestion} className="flex gap-3">
-                <div className="flex-1">
-                  <Input
-                    value={newQuestion}
-                    onChange={(e) => setNewQuestion(e.target.value)}
-                    placeholder="Ask a question..."
-                    className="h-12 text-base"
-                    disabled={isSubmitting}
-                  />
+                  {/* Mobile Dropdown Menu */}
+                  <div className="sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleShareRoom}>
+                          <Share2 className="h-4 w-4 mr-2" />
+                          Share
+                        </DropdownMenuItem>
+                        {isRoomCreator ? (
+                          <DropdownMenuItem onClick={handleEndSession} className="text-red-600">
+                            <Settings className="h-4 w-4 mr-2" />
+                            End Session
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={handleLeaveChat} className="text-red-600">
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Leave Chat
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-                <Button
-                  type="submit"
-                  size="lg"
-                  disabled={!newQuestion.trim() || isSubmitting}
-                  className="px-6"
-                >
-                  {isSubmitting ? (
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Chat Messages - Redesigned */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            className="mb-4"
+          >
+            <Card className="border-0 shadow-lg h-[60vh] flex flex-col">
+              <CardHeader className="py-3 px-4 border-b">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="font-medium">Live Q&A</span>
+                    <Badge variant="secondary">{questions.length}</Badge>
+                  </div>
+                  
+                  {/* Desktop Sort Buttons */}
+                  <div className="hidden sm:flex gap-1">
+                    <Button
+                      variant={sortBy === "newest" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setSortBy("newest")}
+                    >
+                      <Clock className="h-3 w-3 mr-1" />
+                      Latest
+                    </Button>
+                    <Button
+                      variant={sortBy === "votes" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setSortBy("votes")}
+                    >
+                      <ThumbsUp className="h-3 w-3 mr-1" />
+                      Top Voted
+                    </Button>
+                  </div>
+
+                  {/* Mobile Sort Dropdown */}
+                  <div className="sm:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          {sortBy === "newest" ? (
+                            <>
+                              <Clock className="h-3 w-3 mr-1" />
+                              Latest
+                            </>
+                          ) : (
+                            <>
+                              <ThumbsUp className="h-3 w-3 mr-1" />
+                              Top Voted
+                            </>
+                          )}
+                          <ChevronDown className="h-3 w-3 ml-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem 
+                          onClick={() => setSortBy("newest")}
+                          className={sortBy === "newest" ? "bg-accent" : ""}
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          Latest
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => setSortBy("votes")}
+                          className={sortBy === "votes" ? "bg-accent" : ""}
+                        >
+                          <ThumbsUp className="h-4 w-4 mr-2" />
+                          Top Voted
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              </CardHeader>
+              
+              <CardContent className="flex-1 p-0 overflow-hidden">
+                <div ref={messagesContainerRef} className="h-full overflow-y-auto p-4 space-y-3">
+                  <AnimatePresence>
+                    {sortedQuestions.map((question, index) => (
+                      <motion.div
+                        key={question.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.3, delay: index * 0.05 }}
+                        className={`flex gap-3 p-3 rounded-lg transition-colors hover:bg-muted/50 ${
+                          question.isAnswered ? 'bg-green-50 dark:bg-green-950/20' : ''
+                        }`}
+                      >
+                        {/* Avatar */}
+                        <Avatar className="h-8 w-8 flex-shrink-0">
+                          <AvatarImage src={question.user.avatarUrl || ""} />
+                          <AvatarFallback className="text-xs">{question.user.firstName[0]}</AvatarFallback>
+                        </Avatar>
+                        
+                        {/* Message Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-sm truncate">
+                              {question.user.firstName} {question.user.lastName}
+                            </span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">
+                              {formatTimeAgo(question.createdAt)}
+                            </span>
+                            {question.isAnswered && (
+                              <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-xs">
+                                Answered
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm leading-relaxed break-words">{question.content}</p>
+                        </div>
+                        
+                        {/* Vote Button */}
+                        <div className="flex-shrink-0">
+                          <Button
+                            variant={
+                              optimisticVotes[question.id] !== undefined 
+                                ? optimisticVotes[question.id] 
+                                  ? "default" 
+                                  : "ghost"
+                                : question.hasVoted 
+                                  ? "default" 
+                                  : "ghost"
+                            }
+                            size="sm"
+                            onClick={() => handleVote(question.id)}
+                            className={`h-auto py-1 px-2 flex flex-col items-center gap-0.5 transition-all duration-200 ${
+                              optimisticVotes[question.id] !== undefined 
+                                ? 'scale-105 shadow-md' 
+                                : 'hover:scale-105'
+                            }`}
+                          >
+                            <ThumbsUp className={`h-3 w-3 transition-colors duration-200 ${
+                              optimisticVotes[question.id] !== undefined 
+                                ? optimisticVotes[question.id]
+                                  ? 'text-primary-foreground' 
+                                  : 'text-muted-foreground'
+                                : question.hasVoted 
+                                  ? 'text-primary-foreground' 
+                                  : 'text-muted-foreground'
+                            }`} />
+                            <span className="text-xs font-medium">{question.voteCount}</span>
+                          </Button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  
+                  {questions.length === 0 && (
+                    <div className="text-center text-muted-foreground py-8">
+                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>No questions yet. Be the first to ask!</p>
+                    </div>
                   )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
+                  <div ref={messagesEndRef} />
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Message Input */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            <Card className="border-0 shadow-lg">
+              <CardContent className="p-4">
+                <form onSubmit={handleSubmitQuestion} className="flex gap-3">
+                  <div className="flex-1">
+                    <Input
+                      value={newQuestion}
+                      onChange={(e) => setNewQuestion(e.target.value)}
+                      placeholder="Ask a question..."
+                      className="h-10"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    size="default"
+                    disabled={!newQuestion.trim() || isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
       </div>
     </ProtectedRoute>
   );
