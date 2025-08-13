@@ -17,16 +17,15 @@ import {
   MessageSquare,
   Copy,
   ExternalLink,
-  AlertCircle,
-  Loader2
+  AlertCircle
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { LoadingState } from "@/components/ui/loading";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/contexts/auth-context";
 import { getRoomByCode, joinRoom, leaveRoom, type Room } from "@/lib/api/room";
@@ -337,12 +336,9 @@ export default function RoomPage({
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-purple-500" />
-          <p className="text-gray-400">Loading room...</p>
-        </div>
-      </div>
+      <ProtectedRoute>
+          <LoadingState message="Loading room..." />
+      </ProtectedRoute>
     );
   }
 
