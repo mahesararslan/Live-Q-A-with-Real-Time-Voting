@@ -3,6 +3,7 @@ import { CreateRoomInput } from './dto/create-room.input';
 import { UpdateRoomInput } from './dto/update-room.input';
 import { Room } from 'src/entities/room.entity';
 import { User } from 'src/entities/user.entity';
+import { Question } from 'src/entities/question.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -12,6 +13,7 @@ export class RoomService {
   constructor(
     @InjectRepository(Room) private readonly roomRepo: Repository<Room>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Question) private readonly questionRepo: Repository<Question>,
   ) {}
 
   async create(createRoomInput: CreateRoomInput, adminId: number) {
@@ -135,6 +137,33 @@ export class RoomService {
 
   remove(id: number) {
     return this.roomRepo.delete(id);
+  }
+
+  // 🆕 Delete room and all its questions when session ends
+  async deleteRoomAndQuestions(roomCode: string): Promise<boolean> {
+    const room = await this.roomRepo.findOne({
+      where: { code: roomCode },
+      relations: ['questions'],
+    });
+
+    if (!room) {
+      throw new Error('Room not found');
+    }
+
+    try {
+      // Delete all questions in the room first (if not using CASCADE)
+      if (room.questions && room.questions.length > 0) {
+        await this.questionRepo.delete({ roomId: room.id });
+      }
+
+      // Delete the room (this will also delete questions due to CASCADE in entity)
+      await this.roomRepo.delete(room.id);
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting room and questions:', error);
+      throw new Error('Failed to delete room and questions');
+    }
   }
 
   // Private method to generate unique room codes

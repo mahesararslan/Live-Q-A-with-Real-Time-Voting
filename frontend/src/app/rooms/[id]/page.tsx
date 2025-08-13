@@ -61,6 +61,7 @@ export default function RoomPage({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const hasJoinedRoom = useRef<boolean>(false);
 
   // Memoize the socket event handlers to prevent infinite re-renders
   const handleNewMessage = useCallback((newQuestion: Question) => {
@@ -77,11 +78,29 @@ export default function RoomPage({
   const handleUserJoined = useCallback((data: any) => {
     console.log('User joined room:', data);
     toast.info(`${data.user.firstName} joined the room`);
+    
+    // Update room participant count
+    setRoom(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        participants: [...(prev.participants || []), data.user]
+      };
+    });
   }, []);
 
   const handleUserLeft = useCallback((data: any) => {
     console.log('User left room:', data);
     toast.info(`${data.user.firstName} left the room`);
+    
+    // Update room participant count
+    setRoom(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        participants: (prev.participants || []).filter(p => p.id !== data.user.id)
+      };
+    });
   }, []);
 
   const handleJoinRoomSuccess = useCallback((data: any) => {
@@ -175,6 +194,7 @@ export default function RoomPage({
   useEffect(() => {
     params.then((resolvedParams) => {
       setRoomCode(resolvedParams.id);
+      hasJoinedRoom.current = false; // Reset join status when room changes
     });
   }, [params]);
 
@@ -184,6 +204,22 @@ export default function RoomPage({
       loadRoomData();
     }
   }, [roomCode, user]);
+
+  // Join WebSocket room when socket connects and room/user are available
+  useEffect(() => {
+    if (isConnected && roomCode && user && room && !hasJoinedRoom.current) {
+      console.log('Socket connected, joining WebSocket room:', roomCode);
+      socketJoinRoom(roomCode, user.id);
+      hasJoinedRoom.current = true;
+    }
+  }, [isConnected, roomCode, user, room, currentRoom]);
+
+  // Reset join status when socket disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      hasJoinedRoom.current = false;
+    }
+  }, [isConnected]);
 
   const loadRoomData = async () => {
     try {
@@ -226,18 +262,12 @@ export default function RoomPage({
         // Continue without questions if they fail to load
       }
       
-      // Join the WebSocket room for real-time updates
-      if (user && isConnected) {
-        console.log('Joining WebSocket room:', roomCode);
-        socketJoinRoom(roomCode, user.id);
-      }
-      
       toast.success(`Welcome to "${roomData.title}"!`);
       
     } catch (error) {
       console.error('Error loading room:', error);
       toast.error("Failed to load room data");
-      router.push('/rooms/join');
+      // router.push('/rooms/join');
     } finally {
       setIsLoading(false);
     }
@@ -403,12 +433,12 @@ export default function RoomPage({
   // Room not found or error state
   if (!room) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+          <AlertCircle className="h-12 w-12 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-white mb-2">Room Not Found</h2>
           <p className="text-gray-400 mb-6">The room you're looking for doesn't exist or has ended.</p>
-          <Button onClick={() => router.push('/rooms/join')} className="bg-purple-600 hover:bg-purple-700">
+          <Button onClick={() => router.push('/rooms/join')} >
             Join Another Room
           </Button>
         </div>

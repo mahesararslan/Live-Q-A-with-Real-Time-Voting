@@ -51,7 +51,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
     // Remove user from all rooms they were in
-    this.removeUserFromAllRooms(client.id);
+    await this.removeUserFromAllRooms(client.id);
   }
 
   @SubscribeMessage('joinRoom')
@@ -265,7 +265,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Remove all participants from the room
       this.roomParticipants.delete(roomId);
       
-      // TODO: Optionally mark room as ended in database
+      // Delete room and all questions from database
+      try {
+        await this.roomService.deleteRoomAndQuestions(payload.roomCode);
+        this.logger.log(`Successfully deleted room ${payload.roomCode} and all its questions from database`);
+      } catch (deleteError) {
+        this.logger.error('Error deleting room from database:', deleteError);
+        // Continue with session end even if database deletion fails
+      }
       
       this.logger.log(`Session ended for room ${payload.roomCode} by admin ${payload.userId}`);
       
@@ -299,6 +306,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       
       // Remove user from participants tracking
       this.removeUserFromRoom(roomId, client.id, payload.userId);
+      
+      // Remove user from database participants
+      try {
+        await this.roomService.removeParticipant(payload.roomCode, payload.userId);
+        this.logger.log(`User ${payload.userId} removed from database participants for room ${payload.roomCode}`);
+      } catch (dbError) {
+        this.logger.error('Error removing user from database participants:', dbError);
+        // Continue even if database update fails
+      }
       
       this.logger.log(`User ${payload.userId} left room ${payload.roomCode}`);
       
@@ -334,10 +350,29 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  private removeUserFromAllRooms(socketId: string) {
+  private async removeUserFromAllRooms(socketId: string) {
+    const roomsToCleanup: { roomCode: string; userId: number }[] = [];
+    
+    // First, collect room info and remove from in-memory tracking
     this.roomParticipants.forEach((participants, roomId) => {
+      participants.forEach(participant => {
+        if (participant.socketId === socketId) {
+          const roomCode = roomId.replace('room-', '');
+          roomsToCleanup.push({ roomCode, userId: participant.userId });
+        }
+      });
       this.removeUserFromRoom(roomId, socketId);
     });
+    
+    // Then, clean up database participants
+    for (const { roomCode, userId } of roomsToCleanup) {
+      try {
+        await this.roomService.removeParticipant(roomCode, userId);
+        this.logger.log(`Cleaned up database participant ${userId} from room ${roomCode} on disconnect`);
+      } catch (error) {
+        this.logger.error(`Error cleaning up database participant ${userId} from room ${roomCode}:`, error);
+      }
+    }
   }
 
   async sendMessage(question: Question, roomCode?: string) {
