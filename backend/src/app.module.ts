@@ -12,6 +12,7 @@ import { RoomModule } from './room/room.module';
 import { VoteModule } from './vote/vote.module';
 import { QuestionModule } from './question/question.module';
 import { EventsModule } from './events/events.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -30,6 +31,8 @@ import { EventsModule } from './events/events.module';
       debug: true,
       playground: true,
     }),
+
+    RedisModule, // Add Redis module at the top since it's global
 
     UserModule,
 

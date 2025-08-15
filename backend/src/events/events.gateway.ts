@@ -1,4 +1,4 @@
-import { SubscribeMessage, WebSocketGateway, WebSocketServer, ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
+import { SubscribeMessage, WebSocketGateway, WebSocketServer, ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ServerToClientEvents, RoomParticipant } from './types/events';
 import { Question } from 'src/entities/question.entity';
@@ -9,6 +9,7 @@ import { UserService } from 'src/user/user.service';
 import { QuestionService } from 'src/question/question.service';
 import { RoomService } from 'src/room/room.service';
 import { VoteService } from 'src/vote/vote.service';
+import { RedisService, PubSubMessage } from '../redis/redis.service';
 
 interface InternalRoomParticipant {
   socketId: string;
@@ -26,7 +27,7 @@ interface InternalRoomParticipant {
   }
 })
 @UseGuards(WsJwtGuard)
-export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
   private readonly logger = new Logger(EventsGateway.name);
   private roomParticipants = new Map<string, Set<InternalRoomParticipant>>();
 
@@ -38,10 +39,48 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly questionService: QuestionService,
     private readonly roomService: RoomService,
     private readonly voteService: VoteService,
+    private readonly redisService: RedisService,
   ) {}
 
-  afterInit(client: Socket) {
-    client.use(SocketAuthMiddleware() as any);
+  afterInit(server: Server) {
+    // Set up Redis message handlers
+    this.setupRedisHandlers();
+    this.logger.log(`Events Gateway initialized with Redis Pub/Sub on server ${this.redisService.getServerId()}`);
+  }
+
+  private setupRedisHandlers() {
+    // Handle messages from other server instances
+    this.redisService.onMessage('newMessage', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting newMessage from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('newMessage', message.data);
+    });
+
+    this.redisService.onMessage('voteUpdated', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting voteUpdated from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('voteUpdated', message.data);
+    });
+
+    this.redisService.onMessage('questionAnswered', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting questionAnswered from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('questionAnswered', message.data);
+    });
+
+    this.redisService.onMessage('userJoined', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting userJoined from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('userJoined', message.data);
+    });
+
+    this.redisService.onMessage('userLeft', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting userLeft from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('userLeft', message.data);
+    });
+
+    this.redisService.onMessage('sessionEnded', (message: PubSubMessage) => {
+      this.logger.log(`Broadcasting sessionEnded from Redis for room ${message.roomCode}`);
+      this.server.to(`room-${message.roomCode}`).emit('sessionEnded', message.data);
+      // Clean up local participants
+      this.roomParticipants.delete(`room-${message.roomCode}`);
+    });
   }
 
   async handleConnection(client: Socket) {
@@ -110,18 +149,30 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       participants.add(newParticipant);
 
-      // Notify all participants about new user
-      this.server.to(roomId).emit('userJoined', {
+      // Add to Redis for cross-server participant tracking
+      await this.redisService.addParticipantToRoom(payload.roomCode, newParticipant.user);
+      
+      // Get total participants across all servers
+      const totalParticipantCount = await this.redisService.getRoomParticipantCount(payload.roomCode);
+      const allParticipants = await this.redisService.getRoomParticipants(payload.roomCode);
+
+      const joinData = {
         user: newParticipant.user,
-        participantCount: participants.size,
-        participants: Array.from(participants).map(p => p.user),
-      });
+        participantCount: totalParticipantCount,
+        participants: allParticipants,
+      };
+
+      // Emit to local server first
+      this.server.to(roomId).emit('userJoined', joinData);
+      
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(payload.roomCode, 'userJoined', joinData);
 
       // Send success response to the joining user
       client.emit('joinRoomSuccess', {
         roomId: payload.roomCode,
-        participantCount: participants.size,
-        participants: Array.from(participants).map(p => p.user),
+        participantCount: totalParticipantCount,
+        participants: allParticipants,
       });
 
       this.logger.log(`User ${payload.userId} successfully joined room ${payload.roomCode}`);
@@ -139,7 +190,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const roomId = `room-${payload.roomCode}`;
     await client.leave(roomId);
-    this.removeUserFromRoom(roomId, client.id, payload.userId);
+    await this.removeUserFromRoom(roomId, client.id, payload.userId, payload.roomCode);
     
     client.emit('leaveRoomSuccess', { roomId: payload.roomCode });
     this.logger.log(`User ${payload.userId} left room ${payload.roomCode}`);
@@ -171,10 +222,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const roomId = `room-${payload.roomCode}`;
       
-      // Emit the complete question object to all clients in the room
+      // Emit to local server first
       this.server.to(roomId).emit('newMessage', newQuestion);
       
-      this.logger.log(`Emitted newMessage to ${roomId}:`, newQuestion.id);
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(payload.roomCode, 'newMessage', newQuestion);
+      
+      this.logger.log(`Emitted newMessage to ${roomId} and Redis:`, newQuestion.id);
       
     } catch (error) {
       this.logger.error('Error handling message:', error);
@@ -204,14 +258,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       
       const roomId = `room-${payload.roomCode}`;
       
-      // Emit vote update to all clients in the room
-      this.server.to(roomId).emit('voteUpdated', {
+      const voteData = {
         questionId: payload.questionId,
         userId: payload.userId,
         voteCount,
         hasVoted,
         action: voteResult.action // 'added' or 'removed'
-      });
+      };
+
+      // Emit to local server first
+      this.server.to(roomId).emit('voteUpdated', voteData);
+      
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(payload.roomCode, 'voteUpdated', voteData);
       
       this.logger.log(`Vote ${voteResult.action} for question ${payload.questionId}. New count: ${voteCount}`);
       
@@ -247,12 +306,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       
       const roomId = `room-${payload.roomCode}`;
       
-      // Emit question answered update to all clients in the room
-      this.server.to(roomId).emit('questionAnswered', {
+      const answerData = {
         questionId: updatedQuestion.id,
         isAnswered: updatedQuestion.isAnswered,
         question: updatedQuestion
-      });
+      };
+
+      // Emit to local server first
+      this.server.to(roomId).emit('questionAnswered', answerData);
+      
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(payload.roomCode, 'questionAnswered', answerData);
       
       this.logger.log(`Question ${payload.questionId} marked as answered in room ${payload.roomCode}`);
       
@@ -291,8 +355,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const roomId = `room-${payload.roomCode}`;
       
-      // Notify all participants that the session has ended
-      this.server.to(roomId).emit('sessionEnded', {
+      const sessionData = {
         roomCode: payload.roomCode,
         endedBy: {
           id: user.id,
@@ -301,10 +364,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           avatarUrl: user.avatarUrl
         },
         message: `Session ended by ${user.firstName} ${user.lastName}`
-      });
+      };
 
-      // Remove all participants from the room
+      // Emit to local server first
+      this.server.to(roomId).emit('sessionEnded', sessionData);
+      
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(payload.roomCode, 'sessionEnded', sessionData);
+
+      // Remove all participants from local tracking
       this.roomParticipants.delete(roomId);
+      
+      // Clean up Redis room data
+      await this.redisService.deleteRoom(payload.roomCode);
       
       // Delete room and all questions from database
       try {
@@ -346,16 +418,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.leave(roomId);
       
       // Remove user from participants tracking
-      this.removeUserFromRoom(roomId, client.id, payload.userId);
-      
-      // Remove user from database participants
-      try {
-        await this.roomService.removeParticipant(payload.roomCode, payload.userId);
-        this.logger.log(`User ${payload.userId} removed from database participants for room ${payload.roomCode}`);
-      } catch (dbError) {
-        this.logger.error('Error removing user from database participants:', dbError);
-        // Continue even if database update fails
-      }
+      await this.removeUserFromRoom(roomId, client.id, payload.userId, payload.roomCode);
       
       this.logger.log(`User ${payload.userId} left room ${payload.roomCode}`);
       
@@ -364,7 +427,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  private removeUserFromRoom(roomId: string, socketId: string, userId?: number) {
+  private async removeUserFromRoom(roomId: string, socketId: string, userId?: number, roomCode?: string) {
     const participants = this.roomParticipants.get(roomId);
     if (!participants) return;
 
@@ -376,13 +439,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     });
 
-    if (removedUser) {
-      // Notify remaining participants
-      this.server.to(roomId).emit('userLeft', {
+    if (removedUser && roomCode) {
+      // Remove from Redis
+      await this.redisService.removeParticipantFromRoom(roomCode, removedUser.id.toString());
+      
+      // Get updated participant count from Redis
+      const totalParticipantCount = await this.redisService.getRoomParticipantCount(roomCode);
+      const allParticipants = await this.redisService.getRoomParticipants(roomCode);
+
+      const leaveData = {
         user: removedUser,
-        participantCount: participants.size,
-        participants: Array.from(participants).map(p => p.user),
-      });
+        participantCount: totalParticipantCount,
+        participants: allParticipants,
+      };
+
+      // Emit to local server first
+      this.server.to(roomId).emit('userLeft', leaveData);
+      
+      // Publish to Redis for other servers
+      await this.redisService.publishToRoom(roomCode, 'userLeft', leaveData);
+
+      // Remove from database participants
+      try {
+        await this.roomService.removeParticipant(roomCode, removedUser.id);
+        this.logger.log(`User ${removedUser.id} removed from database participants for room ${roomCode}`);
+      } catch (dbError) {
+        this.logger.error('Error removing user from database participants:', dbError);
+      }
     }
 
     // Clean up empty room
@@ -402,17 +485,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           roomsToCleanup.push({ roomCode, userId: participant.userId });
         }
       });
-      this.removeUserFromRoom(roomId, socketId);
     });
     
-    // Then, clean up database participants
+    // Then, clean up each room
     for (const { roomCode, userId } of roomsToCleanup) {
-      try {
-        await this.roomService.removeParticipant(roomCode, userId);
-        this.logger.log(`Cleaned up database participant ${userId} from room ${roomCode} on disconnect`);
-      } catch (error) {
-        this.logger.error(`Error cleaning up database participant ${userId} from room ${roomCode}:`, error);
-      }
+      await this.removeUserFromRoom(`room-${roomCode}`, socketId, userId, roomCode);
     }
   }
 
@@ -434,16 +511,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // Helper methods for other services
-  getRoomParticipants(roomCode: string) {
-    const roomId = `room-${roomCode}`;
-    const participants = this.roomParticipants.get(roomId);
-    return participants ? Array.from(participants).map(p => p.user) : [];
+  // Helper methods for other services (now using Redis)
+  async getRoomParticipants(roomCode: string) {
+    return await this.redisService.getRoomParticipants(roomCode);
   }
 
-  getRoomParticipantCount(roomCode: string): number {
-    const roomId = `room-${roomCode}`;
-    const participants = this.roomParticipants.get(roomId);
-    return participants ? participants.size : 0;
+  async getRoomParticipantCount(roomCode: string): Promise<number> {
+    return await this.redisService.getRoomParticipantCount(roomCode);
+  }
+
+  // Health check method
+  async isRedisHealthy(): Promise<boolean> {
+    return await this.redisService.isHealthy();
+  }
+
+  // Get server ID for debugging
+  getServerId(): string {
+    return this.redisService.getServerId();
   }
 }
