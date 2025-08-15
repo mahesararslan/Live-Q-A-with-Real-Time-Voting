@@ -41,4 +41,10 @@ export interface ServerToClientEvents {
     message: string;
   }) => void;
   sessionEndError: (payload: { error: string; details?: string }) => void;
+  questionAnswered: (payload: {
+    questionId: number;
+    isAnswered: boolean;
+    question: Question;
+  }) => void;
+  markAsAnsweredError: (payload: { error: string; details?: string }) => void;
 }

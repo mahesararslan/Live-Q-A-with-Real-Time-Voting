@@ -80,4 +80,21 @@ export class QuestionService {
   remove(id: number) {
     return this.questionRepo.delete(id);
   }
+
+  async markAsAnswered(questionId: number): Promise<Question> {
+    // Update the question to mark it as answered
+    await this.questionRepo.update(questionId, { isAnswered: true });
+    
+    // Return the updated question
+    const updatedQuestion = await this.questionRepo.findOne({
+      where: { id: questionId },
+      relations: ['user', 'room'],
+    });
+
+    if (!updatedQuestion) {
+      throw new Error('Question not found');
+    }
+
+    return updatedQuestion;
+  }
 }

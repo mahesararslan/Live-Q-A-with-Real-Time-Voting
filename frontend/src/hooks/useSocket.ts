@@ -9,7 +9,7 @@ type SocketIOClient = ReturnType<typeof io>;
 interface UseSocketOptions {
   namespace?: string;
   autoConnect?: boolean;
-  onNewMessage?: (question: any) => void;
+  onNewMessage?: (message: any) => void;
   onUserJoined?: (data: any) => void;
   onUserLeft?: (data: any) => void;
   onJoinRoomSuccess?: (data: any) => void;
@@ -17,6 +17,8 @@ interface UseSocketOptions {
   onVoteUpdated?: (data: any) => void;
   onSessionEnded?: (data: any) => void;
   onSessionEndError?: (data: any) => void;
+  onQuestionAnswered?: (data: any) => void;
+  onMarkAsAnsweredError?: (data: any) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}) {
@@ -30,7 +32,9 @@ export function useSocket(options: UseSocketOptions = {}) {
     onJoinRoomError,
     onVoteUpdated,
     onSessionEnded,
-    onSessionEndError
+    onSessionEndError,
+    onQuestionAnswered,
+    onMarkAsAnsweredError
   } = options;
 
   const [socket, setSocket] = useState<SocketIOClient | null>(null);
@@ -95,6 +99,20 @@ export function useSocket(options: UseSocketOptions = {}) {
       onSessionEndError(data);
     }
   }, [onSessionEndError]);
+
+  const stableOnQuestionAnswered = useCallback((data: any) => {
+    console.log('Question answered:', data);
+    if (onQuestionAnswered) {
+      onQuestionAnswered(data);
+    }
+  }, [onQuestionAnswered]);
+
+  const stableOnMarkAsAnsweredError = useCallback((data: any) => {
+    console.error('Mark as answered error:', data);
+    if (onMarkAsAnsweredError) {
+      onMarkAsAnsweredError(data);
+    }
+  }, [onMarkAsAnsweredError]);
 
   useEffect(() => {
     if (!autoConnect) return;
@@ -163,6 +181,10 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     newSocket.on('sessionEndError', stableOnSessionEndError);
 
+    newSocket.on('questionAnswered', stableOnQuestionAnswered);
+
+    newSocket.on('markAsAnsweredError', stableOnMarkAsAnsweredError);
+
     socketRef.current = newSocket;
     setSocket(newSocket);
 
@@ -205,6 +227,11 @@ export function useSocket(options: UseSocketOptions = {}) {
     emit('vote', { questionId, roomCode, userId });
   }, [emit]);
 
+  const sendMarkAsAnswered = useCallback((questionId: number, roomCode: string, userId: number) => {
+    console.log(`Marking question ${questionId} as answered in room ${roomCode}`);
+    emit('markAsAnswered', { questionId, roomCode, userId });
+  }, [emit]);
+
   const endSession = useCallback((roomCode: string, userId: number) => {
     console.log(`Ending session for room ${roomCode}`);
     emit('endSession', { roomCode, userId });
@@ -239,6 +266,7 @@ export function useSocket(options: UseSocketOptions = {}) {
     leaveRoom,
     sendMessage,
     sendVote,
+    sendMarkAsAnswered,
     endSession,
     userLeaveRoom,
     disconnect,

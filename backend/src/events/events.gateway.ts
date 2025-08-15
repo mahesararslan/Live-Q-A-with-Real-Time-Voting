@@ -224,6 +224,47 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage('markAsAnswered')
+  async handleMarkAsAnswered(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { questionId: number; roomCode: string; userId: number }
+  ) {
+    try {
+      this.logger.log(`Admin ${payload.userId} marking question ${payload.questionId} as answered in room ${payload.roomCode}`);
+      
+      // Verify the user is the room admin
+      const room = await this.roomService.findByCode(payload.roomCode);
+      if (!room || room.admin.id !== payload.userId) {
+        client.emit('markAsAnsweredError', { 
+          error: 'Unauthorized: Only room admin can mark questions as answered',
+          details: 'You must be the room creator to mark questions as answered'
+        });
+        return;
+      }
+
+      // Mark the question as answered
+      const updatedQuestion = await this.questionService.markAsAnswered(payload.questionId);
+      
+      const roomId = `room-${payload.roomCode}`;
+      
+      // Emit question answered update to all clients in the room
+      this.server.to(roomId).emit('questionAnswered', {
+        questionId: updatedQuestion.id,
+        isAnswered: updatedQuestion.isAnswered,
+        question: updatedQuestion
+      });
+      
+      this.logger.log(`Question ${payload.questionId} marked as answered in room ${payload.roomCode}`);
+      
+    } catch (error) {
+      this.logger.error('Error marking question as answered:', error);
+      client.emit('markAsAnsweredError', { 
+        error: 'Failed to mark question as answered',
+        details: error.message 
+      });
+    }
+  }
+
   @SubscribeMessage('endSession')
   async handleEndSession(
     @ConnectedSocket() client: Socket,

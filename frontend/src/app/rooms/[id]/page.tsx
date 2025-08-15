@@ -57,6 +57,7 @@ export default function RoomPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [roomCode, setRoomCode] = useState<string>("");
   const [optimisticVotes, setOptimisticVotes] = useState<Record<string, boolean>>({});
+  const [participantCount, setParticipantCount] = useState(0);
   
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -79,28 +80,20 @@ export default function RoomPage({
     console.log('User joined room:', data);
     toast.info(`${data.user.firstName} joined the room`);
     
-    // Update room participant count
-    setRoom(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        participants: [...(prev.participants || []), data.user]
-      };
-    });
+    // Update participant count from WebSocket data
+    if (data.participantCount !== undefined) {
+      setParticipantCount(data.participantCount);
+    }
   }, []);
 
   const handleUserLeft = useCallback((data: any) => {
     console.log('User left room:', data);
     toast.info(`${data.user.firstName} left the room`);
     
-    // Update room participant count
-    setRoom(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        participants: (prev.participants || []).filter(p => p.id !== data.user.id)
-      };
-    });
+    // Update participant count from WebSocket data
+    if (data.participantCount !== undefined) {
+      setParticipantCount(data.participantCount);
+    }
   }, []);
 
   const handleJoinRoomSuccess = useCallback((data: any) => {
@@ -167,6 +160,26 @@ export default function RoomPage({
     toast.error(data.details || data.error || 'Failed to end session');
   }, []);
 
+  const handleQuestionAnswered = useCallback((data: {
+    questionId: number;
+    isAnswered: boolean;
+    question: any;
+  }) => {
+    console.log('Question answered:', data);
+    
+    // Update the question's answered status in real-time
+    setQuestions(prev => prev.map(q => 
+      q.id === data.questionId ? { ...q, isAnswered: data.isAnswered } : q
+    ));
+    
+    toast.info(`Question marked as answered!`);
+  }, []);
+
+  const handleMarkAsAnsweredError = useCallback((data: { error: string; details?: string }) => {
+    console.error('Mark as answered error:', data);
+    toast.error(data.details || data.error || 'Failed to mark question as answered');
+  }, []);
+
   // Socket integration with room management
   const { 
     isConnected, 
@@ -176,6 +189,7 @@ export default function RoomPage({
     leaveRoom: socketLeaveRoom,
     sendMessage: socketSendMessage,
     sendVote: socketSendVote,
+    sendMarkAsAnswered: socketSendMarkAsAnswered,
     endSession: socketEndSession,
     userLeaveRoom: socketUserLeaveRoom
   } = useSocket({
@@ -187,7 +201,9 @@ export default function RoomPage({
     onJoinRoomError: handleJoinRoomError,
     onVoteUpdated: handleVoteUpdated,
     onSessionEnded: handleSessionEnded,
-    onSessionEndError: handleSessionEndError
+    onSessionEndError: handleSessionEndError,
+    onQuestionAnswered: handleQuestionAnswered,
+    onMarkAsAnsweredError: handleMarkAsAnsweredError
   });
 
   // Resolve params for Next.js 15
@@ -241,6 +257,9 @@ export default function RoomPage({
       }
 
       setRoom(roomData);
+      
+      // Set initial participant count
+      setParticipantCount(roomData.participants?.length || 0);
       
       // Check if user is already a participant
       const isParticipant = roomData.participants?.some(p => p.id === user?.id);
@@ -390,6 +409,30 @@ export default function RoomPage({
     }
   };
 
+  const handleMarkAsAnswered = async (questionId: number) => {
+    if (!isRoomCreator || !room || !user) return;
+
+    try {
+      // Optimistically update the UI
+      setQuestions(prev => prev.map(q => 
+        q.id === questionId ? { ...q, isAnswered: true } : q
+      ));
+
+      // Send mark as answered via WebSocket
+      socketSendMarkAsAnswered(questionId, room.code, user.id);
+      toast.success("Question marked as answered!");
+      
+    } catch (error) {
+      console.error('Error marking question as answered:', error);
+      toast.error("Failed to mark as answered");
+      
+      // Revert the optimistic update
+      setQuestions(prev => prev.map(q => 
+        q.id === questionId ? { ...q, isAnswered: false } : q
+      ));
+    }
+  };
+
   const handleShareRoom = async () => {
     // const shareUrl = `${window.location.origin}/rooms/join?code=${roomCode}`;
     const shareUrl = roomCode;
@@ -469,7 +512,7 @@ export default function RoomPage({
                       <h2 className="font-semibold text-lg">{room.title}</h2>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Users className="h-3 w-3" />
-                        <span>{room.participants?.length || 0} participants</span>
+                        <span>{participantCount} participants</span>
                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
                       </div>
                     </div>
@@ -649,8 +692,8 @@ export default function RoomPage({
                           <p className="text-sm leading-relaxed break-words">{question.content}</p>
                         </div>
                         
-                        {/* Vote Button */}
-                        <div className="flex-shrink-0">
+                        {/* Vote Button and Admin Menu */}
+                        <div className="flex-shrink-0 flex items-center gap-2">
                           <Button
                             variant={
                               optimisticVotes[question.id] !== undefined 
@@ -680,6 +723,23 @@ export default function RoomPage({
                             }`} />
                             <span className="text-xs font-medium">{question.voteCount}</span>
                           </Button>
+                          
+                          {/* Admin Options Dropdown */}
+                          {isRoomCreator && !question.isAnswered && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleMarkAsAnswered(question.id)}>
+                                  <AlertCircle className="h-4 w-4 mr-2" />
+                                  Mark as Answered
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </motion.div>
                     ))}

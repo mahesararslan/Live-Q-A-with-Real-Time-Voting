@@ -155,5 +155,27 @@ export const questionApi = {
   async getQuestionsByRoom(roomId: number): Promise<Question[]> {
     const response = await graphqlRequest<{ questionsByRoom: Question[] }>(GET_QUESTIONS_BY_ROOM_QUERY, { roomId });
     return response.questionsByRoom;
+  },
+
+  async markAsAnswered(questionId: number): Promise<Question> {
+    const MARK_AS_ANSWERED_MUTATION = `
+      mutation MarkAsAnswered($questionId: Int!) {
+        markAsAnswered(questionId: $questionId) {
+          id
+          content
+          voteCount
+          isAnswered
+          isDeleted
+          createdAt
+          updatedAt
+        }
+      }
+    `;
+
+    const response = await graphqlRequest<{ markAsAnswered: Question }>(
+      MARK_AS_ANSWERED_MUTATION, 
+      { questionId }
+    );
+    return response.markAsAnswered;
   }
 };
