@@ -10,6 +10,6 @@ export default registerAs(
 
     entities: [path.resolve(__dirname, '..') + '/**/*.entity{.ts,.js}'],
 
-    synchronize: true,
+    synchronize: process.env.NODE_ENV === 'development',
   }),
 );
