@@ -10,7 +10,7 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
 
    app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3002', 'https://live-q-a-with-real-time-voting-z5fy.vercel.app'],
+    origin: ['http://localhost:3001', 'http://localhost:3002', 'https://live-q-a-with-real-time-voting-z5fy.vercel.app', 'https://live-q-a-with-real-time-voting.vercel.app'],
     credentials: true,
   });
 
