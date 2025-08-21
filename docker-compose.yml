@@ -1,0 +1,46 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: liveqa
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+
+  # Redis for Pub/Sub
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  # Backend
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/liveqa
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=your-secret-key
+      - JWT_EXPIRES_IN=7d
+      - GOOGLE_CLIENT_ID=your-google-client-id
+      - GOOGLE_SECRET=your-google-secret
+      - GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
+      - FRONTEND_URL=http://localhost:3001
+      - NODE_ENV=development
+    depends_on:
+      - postgres
+      - redis
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    ports:
+      - "3001:3001"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+    depends_on:
+      - backend

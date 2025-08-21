@@ -59,69 +59,10 @@ src/
 - **Theme**: next-themes for dark/light mode
 - **Real-time**: Socket.io (client)
 
-## 🎨 Design System
-
-### Typography
-- **Primary Font**: Geist Sans
-- **Monospace Font**: Geist Mono
-- **Scale**: Responsive typography with consistent hierarchy
-
-### Colors
-- **Primary**: Blue-based theme for CTAs and highlights
-- **Secondary**: Muted grays for supporting elements
-- **Success**: Green for positive actions (live status, answered questions)
-- **Destructive**: Red for dangerous actions (end session, delete)
-
-### Components
-- **Cards**: Elevated surfaces with subtle shadows
-- **Buttons**: Multiple variants (default, outline, destructive, ghost)
-- **Forms**: Accessible inputs with validation feedback
-- **Navigation**: Responsive navbar with mobile menu
-
-## 📱 Pages Overview
-
-### Landing Page (`/`)
-- Hero section with value proposition
-- Feature highlights with icons
-- Call-to-action buttons
-- Responsive design showcase
-
-### Authentication (`/auth/signin`, `/auth/signup`)
-- Clean, centered login/register forms
-- Google OAuth integration ready
-- Form validation with Zod schemas
-- Password strength indicators
-
-### Room Listing (`/rooms`)
-- Grid layout of available rooms
-- Search and filter functionality
-- Room status indicators (Live/Ended)
-- Participant and question counts
-
-### Room Interface (`/rooms/[id]`)
-- Real-time question feed
-- Voting interface with visual feedback
-- Sort by votes or newest
-- Live participant count
-- Question submission form
-
-### Admin Panel (`/admin`)
-- Session control (start/end/hide)
-- Real-time statistics dashboard
-- Question management tools
-- Participant monitoring
-- Data export capabilities
-
-### About Page (`/about`)
-- Mission and vision statement
-- Feature explanations with icons
-- Technology stack showcase
-- Professional presentation
-
 ## 🔧 Setup & Development
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 
 - npm/yarn/pnpm
 
 ### Installation
