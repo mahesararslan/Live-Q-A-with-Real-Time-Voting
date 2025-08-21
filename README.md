@@ -138,10 +138,6 @@ If using Redis Cloud instead of local Redis:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
-
-This project is licensed under the MIT License.
-
 ---
 
-Built with ❤️ by [Mahesar Arslan](https://github.com/mahesararslan)
+Built with ❤️ by [Arslan Mahesar](https://github.com/mahesararslan)

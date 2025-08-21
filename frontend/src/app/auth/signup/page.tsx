@@ -59,7 +59,7 @@ export default function SignUpPage() {
 
   // Redirect if already authenticated
   if (isAuthenticated) {
-    router.push('/rooms');
+    router.push('/');
     return null;
   }
 
