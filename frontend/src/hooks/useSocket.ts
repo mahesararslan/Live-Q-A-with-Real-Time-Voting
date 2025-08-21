@@ -124,7 +124,8 @@ export function useSocket(options: UseSocketOptions = {}) {
     }
 
     // Create socket connection with correct configuration
-    const newSocket = io(`${process.env.NEXT_PUBLIC_BACKEND_URL}${namespace}`, {
+    const url = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3000";
+    const newSocket = io(`${url}${namespace}`, {
       transports: ['websocket', 'polling'],
       auth: {
         token: token  // This will be available in client.handshake.auth.token
